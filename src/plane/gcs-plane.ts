@@ -1,33 +1,27 @@
 // GcsPlane: the GCS-interface adapter. It connects to a Mission Control (GCS)
-// Convex backend by URL — LOCAL (a dev / self-hosted Convex) or PROD
-// (https://convex.altnautica.com) — authenticates as the operator, and reaches
-// the operator's CLOUD-CONNECTED drones through the same auth-gated Convex
-// functions the GCS itself calls. This is the primary pathway: the AI client
-// connects to the MCP server; the MCP server is the AI-native interface to
-// Mission Control; through it the operator reads and controls their fleet.
+// Convex backend by URL — LOCAL (a dev / self-hosted Convex) or PROD — and reaches
+// the operator's CLOUD-CONNECTED drones through the machine-credential reach
+// surface (`cmdMcpReach`). This is the primary pathway: the AI client connects to
+// the MCP server; the MCP server is the AI-native interface to Mission Control;
+// through it the operator reads and controls their fleet.
 //
-// Honest reach limit (a surface reports verified state or none): Convex holds
-// only cloud-paired drones. A LAN-only drone lives in the browser's local store
-// and never touches Convex, so it is reached by the drone-direct pathway
-// (--target agent <host>), not here. And the relay carries a fixed command
-// vocabulary with no synchronous parameter/config read, so those reads throw a
-// typed `not_supported` that names the reach which does serve them — never a
-// fabricated value.
+// AUTH: the operator mints one scoped, revocable, opaque machine credential in
+// the Mission Control MCP tab and runs the server with it. That credential is
+// passed on every reach call; the backend hashes it, checks it is live, resolves
+// the operator, and scopes the reach. The server never holds a browser refresh
+// token (rotating, single-consumer; a second consumer logs the operator's browser
+// out) and never needs an operator HMAC secret — the backend verifies.
 //
-// Operator identity: the MCP server is trusted (the operator runs it on their
-// own machine), so it holds an operator session to call the gated reach
-// functions. v1 uses the existing GCS auth refresh token: the operator signs in
-// once in the Mission Control MCP tab, the setup recipe hands the server a
-// refresh token, and the server mints a short-lived JWT from it and refreshes as
-// needed. Refresh tokens rotate, so the live token is kept in memory for the
-// process lifetime; a restart re-mints from the tab.
+// Honest reach limit (a surface reports verified state or none): the relay
+// carries a fixed command vocabulary with no synchronous parameter/config read or
+// write, so those throw a typed `not_supported` naming the direct reach.
 
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { GateError } from "../gate/errors.js";
-import { logger } from "../util/logger.js";
 import type {
   CommandOutcome,
+  CredentialPrincipal,
   FirmwareHint,
   NodeRef,
   NodeStatus,
@@ -42,8 +36,8 @@ import { firmwareOf, readBatteryPct, vehicleClassOf } from "./lan-direct.js";
 export interface GcsPlaneConfig {
   /** The Mission Control Convex deployment URL (local or prod). */
   convexUrl?: string;
-  /** The operator refresh token minted in the Mission Control MCP tab. */
-  refreshToken?: string;
+  /** The operator machine credential minted in the Mission Control MCP tab. */
+  credential?: string;
   /** The MQTT broker URL for live streams (used by later streaming phases). */
   mqttUrl?: string;
   /** A public label for the description, e.g. the hosted endpoint name. */
@@ -52,31 +46,25 @@ export interface GcsPlaneConfig {
   timeoutMs?: number;
 }
 
-/** The operator HMAC secret used to verify `cloud:` MCP tokens. */
-export interface OperatorSecret {
-  current: Uint8Array;
-  previous?: Uint8Array;
-}
-
 // A heartbeat older than this reads as offline in the fleet list.
 const ONLINE_WINDOW_MS = 90_000;
-// Re-mint the JWT this far before its nominal one-hour life.
-const JWT_TTL_MS = 50 * 60_000;
-// Cache the operator HMAC secret this long so a burst of token verifications
-// hits the backend at most once per window (the secret rotates on a ~30-day
-// cadence, and the verifier accepts current-or-previous, so a short cache is safe).
-const OPERATOR_SECRET_TTL_MS = 60_000;
-
+// Cache a credential's verification this long so a burst of sessions re-verifies
+// (and picks up a revocation) at most once per window.
+const PRINCIPAL_TTL_MS = 60_000;
 // Poll the command queue this often, up to this deadline, for the agent's ack.
 const RELAY_POLL_MS = 700;
 const RELAY_ACK_TIMEOUT_MS = 25_000;
 
-const SIGN_IN = makeFunctionReference<"action">("auth:signIn");
-const GET_CLOUD_STATUS = makeFunctionReference<"query">("cmdDroneStatus:getCloudStatus");
-const LIST_MY_CLOUD_STATUSES = makeFunctionReference<"query">("cmdDroneStatus:listMyCloudStatuses");
-const GET_MY_SECRET = makeFunctionReference<"query">("operatorHmacSecrets:getMyCurrent");
-const ENQUEUE_COMMAND = makeFunctionReference<"mutation">("cmdDroneCommands:enqueueCommand");
-const GET_COMMAND_STATUS = makeFunctionReference<"query">("cmdDroneCommands:getCommandStatus");
+const VERIFY_CREDENTIAL = makeFunctionReference<"action">("cmdMcpReach:verifyCredential");
+const LIST_NODES = makeFunctionReference<"action">("cmdMcpReach:listNodes");
+const GET_STATUS = makeFunctionReference<"action">("cmdMcpReach:getStatus");
+const ENQUEUE = makeFunctionReference<"action">("cmdMcpReach:enqueue");
+const GET_COMMAND_STATUS = makeFunctionReference<"action">("cmdMcpReach:getCommandStatus");
+
+interface StatusRow {
+  drone?: Record<string, unknown>;
+  status?: Record<string, unknown> | null;
+}
 
 interface RelayRow {
   status?: string;
@@ -84,22 +72,14 @@ interface RelayRow {
   data?: unknown;
 }
 
-interface StatusRow {
-  drone?: Record<string, unknown>;
-  status?: Record<string, unknown> | null;
-}
-
 export class GcsPlane implements PlatformPlane {
   readonly mode: PlaneMode = "fleet";
   private readonly client: ConvexHttpClient | null;
-  private jwt: string | null = null;
-  private jwtExpiry = 0;
-  private refreshToken?: string;
-  private authInFlight: Promise<void> | null = null;
-  private secretCache: { value: OperatorSecret; expiry: number } | null = null;
+  private readonly credential?: string;
+  private principalCache: Map<string, { value: CredentialPrincipal | null; expiry: number }> = new Map();
 
   constructor(private readonly config: GcsPlaneConfig = {}) {
-    this.refreshToken = config.refreshToken;
+    this.credential = config.credential;
     this.client = config.convexUrl ? new ConvexHttpClient(config.convexUrl) : null;
   }
 
@@ -108,26 +88,37 @@ export class GcsPlane implements PlatformPlane {
   }
 
   async health(): Promise<PlaneHealth> {
-    if (!this.client) {
-      return { ok: false, detail: "GCS backend not configured (no Convex url)" };
-    }
-    if (!this.refreshToken) {
+    if (!this.client) return { ok: false, detail: "GCS backend not configured (no Convex url)" };
+    if (!this.credential) {
       return {
         ok: false,
-        detail: "not signed in to the GCS backend; mint a token in the Mission Control MCP tab",
+        detail: "no operator credential; mint one in the Mission Control MCP tab",
         target: this.config.convexUrl,
       };
     }
+    const principal = await this.verifyCredential(this.credential).catch(() => null);
+    if (!principal) {
+      return { ok: false, detail: "credential invalid, revoked, or expired", target: this.config.convexUrl };
+    }
+    return { ok: true, target: this.config.convexUrl };
+  }
+
+  /** Verify a machine credential and cache the principal (picks up revocations). */
+  async verifyCredential(credential: string): Promise<CredentialPrincipal | null> {
+    if (!this.client) return null;
+    const cached = this.principalCache.get(credential);
+    if (cached && Date.now() < cached.expiry) return cached.value;
     try {
-      await this.ensureAuth();
-      await this.query(LIST_MY_CLOUD_STATUSES, {});
-      return { ok: true, target: this.config.convexUrl };
-    } catch (err) {
-      return {
-        ok: false,
-        detail: err instanceof Error ? err.message : String(err),
-        target: this.config.convexUrl,
-      };
+      const value = await this.action<CredentialPrincipal | null>(VERIFY_CREDENTIAL, { credential });
+      // Cache only a DEFINITIVE backend answer: a resolved principal, or a
+      // resolved null that means genuinely revoked/expired.
+      this.principalCache.set(credential, { value, expiry: Date.now() + PRINCIPAL_TTL_MS });
+      return value;
+    } catch {
+      // A transient failure (timeout / network) is NOT a revocation. Fail closed
+      // for this call but do NOT poison the cache, so a recovered backend restores
+      // auth on the very next request instead of after the full TTL.
+      return null;
     }
   }
 
@@ -136,7 +127,6 @@ export class GcsPlane implements PlatformPlane {
   }
 
   async getStatusFull(node: NodeRef): Promise<NodeStatus> {
-    // The heartbeat row is the single cloud snapshot; it is the full document.
     return this.cloudStatus(node);
   }
 
@@ -168,8 +158,7 @@ export class GcsPlane implements PlatformPlane {
 
   async getServices(node: NodeRef): Promise<NodeStatus> {
     const s = await this.cloudStatus(node);
-    const services = s.services;
-    return { services: services ?? [] };
+    return { services: s.services ?? [] };
   }
 
   getParams(_node: NodeRef): Promise<ParamEntry[]> {
@@ -198,8 +187,7 @@ export class GcsPlane implements PlatformPlane {
   }
 
   async listNodes(): Promise<NodeSummary[]> {
-    await this.ensureAuth();
-    const rows = (await this.query<StatusRow[]>(LIST_MY_CLOUD_STATUSES, {})) ?? [];
+    const rows = (await this.action<StatusRow[]>(LIST_NODES, { credential: this.requireCredential() })) ?? [];
     const now = Date.now();
     return rows.map((row) => {
       const drone = row.drone ?? {};
@@ -237,8 +225,6 @@ export class GcsPlane implements PlatformPlane {
   }
 
   pluginRemove(node: NodeRef, id: string, keepData?: boolean): Promise<CommandOutcome> {
-    // The relay uninstall cannot preserve plugin data, so a keep-data removal is
-    // refused (naming the direct reach) rather than silently destroying it.
     if (keepData) return Promise.reject(this.relayWriteUnsupported("a keep-data plugin removal"));
     return this.runRelayCommand(node, "plugin.uninstall", { pluginId: id });
   }
@@ -248,15 +234,10 @@ export class GcsPlane implements PlatformPlane {
       ...(opts?.level ? { level: opts.level } : {}),
       limit: opts?.limit ?? 200,
     });
-    if (!outcome.ok) {
-      throw new GateError("rest_down", outcome.message ?? "get_logs did not complete on the drone");
-    }
+    if (!outcome.ok) throw new GateError("rest_down", outcome.message ?? "get_logs did not complete on the drone");
     return outcome.data ?? { entries: [] };
   }
 
-  // The relay vocabulary carries no synchronous parameter/config write, no
-  // supervisor restart, no plugin install (the console installs over direct HTTP)
-  // and no plugin-config value set, so these name the direct reach honestly.
   restartSupervisor(_node: NodeRef): Promise<CommandOutcome> {
     return Promise.reject(this.relayWriteUnsupported("restarting the supervisor"));
   }
@@ -273,13 +254,7 @@ export class GcsPlane implements PlatformPlane {
     return Promise.reject(this.relayWriteUnsupported("installing a plugin"));
   }
 
-  pluginConfig(
-    _node: NodeRef,
-    _id: string,
-    _key: string,
-    _value: unknown,
-    _scope?: string,
-  ): Promise<CommandOutcome> {
+  pluginConfig(_node: NodeRef, _id: string, _key: string, _value: unknown, _scope?: string): Promise<CommandOutcome> {
     return Promise.reject(this.relayWriteUnsupported("setting a plugin configuration value"));
   }
 
@@ -291,23 +266,30 @@ export class GcsPlane implements PlatformPlane {
     return Promise.reject(this.relayReadUnsupported("a plugin's detail"));
   }
 
+  private async cloudStatus(node: NodeRef): Promise<NodeStatus> {
+    const row = await this.action<Record<string, unknown> | null>(GET_STATUS, {
+      credential: this.requireCredential(),
+      deviceId: node,
+    });
+    if (!row) {
+      throw new GateError("not_supported", `no cloud status for ${node} (not a cloud-paired drone)`, { node });
+    }
+    return row;
+  }
+
   /** Enqueue a relay command and poll the ack to a terminal outcome. */
   private async runRelayCommand(
     node: NodeRef,
     command: string,
     args: Record<string, unknown>,
   ): Promise<CommandOutcome> {
-    await this.ensureAuth();
-    const enq = await this.mutation<{ commandId: string }>(ENQUEUE_COMMAND, {
-      deviceId: node,
-      command,
-      args,
-    });
+    const credential = this.requireCredential();
+    const enq = await this.action<{ commandId: string }>(ENQUEUE, { credential, deviceId: node, command, args });
     const commandId = enq.commandId;
     const deadline = Date.now() + RELAY_ACK_TIMEOUT_MS;
     while (Date.now() < deadline) {
       await delay(RELAY_POLL_MS);
-      const row = await this.query<RelayRow | null>(GET_COMMAND_STATUS, { commandId });
+      const row = await this.action<RelayRow | null>(GET_COMMAND_STATUS, { credential, commandId });
       if (row && (row.status === "completed" || row.status === "failed")) {
         const ok = row.status === "completed" && row.result?.success !== false;
         return {
@@ -327,43 +309,18 @@ export class GcsPlane implements PlatformPlane {
     };
   }
 
+  private requireCredential(): string {
+    if (!this.credential) {
+      throw new GateError("unauthorized", "no operator credential; mint one in the Mission Control MCP tab");
+    }
+    return this.credential;
+  }
+
   private relayWriteUnsupported(what: string): GateError {
     return new GateError(
       "not_supported",
       `${what} is not available over the GCS relay; reach the drone directly with --target agent <host>`,
     );
-  }
-
-  /**
-   * Fetch the operator HMAC secret used to verify `cloud:` MCP tokens. The read
-   * plane wires this into the token resolver so the AI client's cloud token is
-   * verified against the operator's current (and just-rotated previous) secret.
-   */
-  async getOperatorSecret(): Promise<OperatorSecret> {
-    if (this.secretCache && Date.now() < this.secretCache.expiry) return this.secretCache.value;
-    await this.ensureAuth();
-    const row = await this.query<{ secretBase64: string; previousSecretBase64?: string } | null>(
-      GET_MY_SECRET,
-      {},
-    );
-    if (!row?.secretBase64) throw new GateError("not_supported", "operator secret unavailable");
-    const value: OperatorSecret = {
-      current: b64ToBytes(row.secretBase64),
-      ...(row.previousSecretBase64 ? { previous: b64ToBytes(row.previousSecretBase64) } : {}),
-    };
-    this.secretCache = { value, expiry: Date.now() + OPERATOR_SECRET_TTL_MS };
-    return value;
-  }
-
-  private async cloudStatus(node: NodeRef): Promise<NodeStatus> {
-    await this.ensureAuth();
-    const row = await this.query<Record<string, unknown> | null>(GET_CLOUD_STATUS, { deviceId: node });
-    if (!row) {
-      throw new GateError("not_supported", `no cloud status for ${node} (not a cloud-paired drone)`, {
-        node,
-      });
-    }
-    return row;
   }
 
   private relayReadUnsupported(what: string): GateError {
@@ -373,75 +330,17 @@ export class GcsPlane implements PlatformPlane {
     );
   }
 
-  /** Ensure a live operator JWT is set on the client, refreshing when stale. */
-  private async ensureAuth(): Promise<void> {
-    if (!this.client) throw new GateError("not_supported", "GCS backend not configured");
-    if (this.jwt && Date.now() < this.jwtExpiry) return;
-    // Serialize concurrent refreshes so a rotating refresh token is spent once.
-    if (this.authInFlight) return this.authInFlight;
-    this.authInFlight = this.refreshJwt().finally(() => {
-      this.authInFlight = null;
-    });
-    return this.authInFlight;
-  }
-
-  private async refreshJwt(): Promise<void> {
-    if (!this.client) throw new GateError("not_supported", "GCS backend not configured");
-    if (!this.refreshToken) {
-      throw new GateError(
-        "unauthorized",
-        "not signed in to the GCS backend; mint a token in the Mission Control MCP tab",
-      );
-    }
-    let result: unknown;
-    try {
-      // Bound the sign-in so a hung backend cannot leave authInFlight pending
-      // forever and wedge every read behind it (the query path is bounded too).
-      result = await withTimeout(
-        this.client.action(SIGN_IN, { refreshToken: this.refreshToken }) as Promise<unknown>,
-        this.config.timeoutMs ?? 10_000,
-        "GCS sign-in",
-      );
-    } catch (err) {
-      throw new GateError("unauthorized", `GCS sign-in failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-    const tokens = (result as { tokens?: { token?: string; refreshToken?: string } } | null)?.tokens;
-    if (!tokens?.token) {
-      throw new GateError("unauthorized", "GCS sign-in returned no token; the refresh token may be spent");
-    }
-    this.jwt = tokens.token;
-    this.jwtExpiry = Date.now() + JWT_TTL_MS;
-    if (tokens.refreshToken) this.refreshToken = tokens.refreshToken; // rotate
-    this.client.setAuth(this.jwt);
-    logger.debug("GCS operator session refreshed");
-  }
-
-  private async query<T = unknown>(
+  private async action<T = unknown>(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ref: any,
     args: Record<string, unknown>,
   ): Promise<T> {
     if (!this.client) throw new GateError("not_supported", "GCS backend not configured");
-    const timeoutMs = this.config.timeoutMs ?? 10_000;
-    return (await withTimeout(this.client.query(ref, args) as Promise<T>, timeoutMs, "GCS query")) as T;
-  }
-
-  private async mutation<T = unknown>(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ref: any,
-    args: Record<string, unknown>,
-  ): Promise<T> {
-    if (!this.client) throw new GateError("not_supported", "GCS backend not configured");
-    const timeoutMs = this.config.timeoutMs ?? 10_000;
-    return (await withTimeout(this.client.mutation(ref, args) as Promise<T>, timeoutMs, "GCS mutation")) as T;
+    const timeoutMs = this.config.timeoutMs ?? 15_000;
+    return (await withTimeout(this.client.action(ref, args) as Promise<T>, timeoutMs, "GCS action")) as T;
   }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Project a subset of keys that are present on a document. */
 function pick(source: Record<string, unknown>, keys: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const k of keys) {
@@ -455,8 +354,8 @@ function numOr(...vals: unknown[]): number | undefined {
   return undefined;
 }
 
-function b64ToBytes(b64: string): Uint8Array {
-  return new Uint8Array(Buffer.from(b64, "base64"));
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {

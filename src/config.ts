@@ -58,8 +58,8 @@ export interface ServerConfig {
   revocationSalt?: Uint8Array;
   // fleet-mode (the GCS-interface pathway)
   convexUrl?: string;
-  /** The operator refresh token that authenticates the server to the GCS backend. */
-  refreshToken?: string;
+  /** The operator machine credential that reaches the GCS backend (fleet-mode). */
+  credential?: string;
   mqttUrl?: string;
   fleetEndpoint: string;
   // auth
@@ -137,13 +137,14 @@ export function resolveConfig(args: CliArgs): ServerConfig {
     agentApiKey: pairing.apiKey ?? process.env.ADOS_MCP_AGENT_KEY,
     pairingKey: pairing.apiKey ?? process.env.ADOS_MCP_PAIRING_KEY,
     convexUrl: resolveGcsUrl(args.gcs) ?? args.convexUrl ?? process.env.ADOS_CONVEX_URL,
-    refreshToken: args.refreshToken ?? process.env.ADOS_GCS_REFRESH_TOKEN,
     mqttUrl: args.mqttUrl ?? process.env.ADOS_MQTT_URL,
     fleetEndpoint: args.fleetEndpoint ?? process.env.ADOS_MCP_FLEET_ENDPOINT ?? DEFAULT_FLEET_ENDPOINT,
     localDevSecret: resolveLocalDevSecret(),
     revokedListPath: revokedListPath(),
     auditPath: args.auditPath ?? defaultAuditPath(),
     ...(launchToken ? { launchToken } : {}),
+    // In fleet-mode the launch token IS the operator machine credential.
+    ...(launchToken && mode === "fleet" ? { credential: launchToken } : {}),
     transports,
     httpPort: args.httpPort ?? (Number(process.env.ADOS_MCP_HTTP_PORT) || DEFAULT_HTTP_PORT),
     unixSocketPath: defaultUnixSocketPath(),

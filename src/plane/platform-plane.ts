@@ -50,6 +50,18 @@ export interface CommandOutcome {
   commandId?: string;
 }
 
+/**
+ * The principal a fleet-mode credential resolves to. In fleet-mode the bearer is
+ * an opaque machine credential the GCS minted; the plane verifies it against the
+ * backend and returns the operator it belongs to and the scopes + node allowlist
+ * it carries. `null` means the credential is invalid, revoked, or expired.
+ */
+export interface CredentialPrincipal {
+  userId: string;
+  scopes: string[];
+  allowedNodes: string[];
+}
+
 /** A firmware hint so the reader can pick the right parameter-metadata snapshot. */
 export interface FirmwareHint {
   /** ardupilot | px4 | betaflight | inav | unknown. */
@@ -86,6 +98,13 @@ export interface PlatformPlane {
 
   /** Whether the bound plane is currently reachable. Never throws. */
   health(): Promise<PlaneHealth>;
+
+  /**
+   * Verify a fleet-mode machine credential against the backend, returning its
+   * principal or null. Agent-mode planes (no backend) return null; agent-mode
+   * auth is the self-contained token path, not this.
+   */
+  verifyCredential(credential: string): Promise<CredentialPrincipal | null>;
 
   /** Read the consolidated status for a node. */
   getStatus(node: NodeRef): Promise<NodeStatus>;

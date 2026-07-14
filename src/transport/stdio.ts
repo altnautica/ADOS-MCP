@@ -10,6 +10,9 @@ import type { ServerConfig } from "../config.js";
 import { logger } from "../util/logger.js";
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "0.0.0.0"]);
+// How often a long-lived stdio fleet session re-verifies its credential, so a
+// revocation propagates within this window (HTTP re-auths per request).
+const FLEET_REVERIFY_MS = 60_000;
 
 function isLocalTarget(host: string): boolean {
   const bare = host.replace(/^https?:\/\//, "").replace(/:\d+$/, "").toLowerCase();
@@ -28,6 +31,23 @@ export async function startStdio(core: ServerCore, config: ServerConfig): Promis
     throw new Error(
       "a bearer token is required for a remote target over stdio; pass --token or set ADOS_MCP_TOKEN",
     );
+  }
+
+  // A fleet-mode machine credential is revocable, but the stdio principal is
+  // pinned once at launch, so re-verify it periodically and deauthorize the
+  // session if it stops verifying (a revocation). HTTP re-auths per request.
+  if (config.mode === "fleet" && config.launchToken) {
+    const token = config.launchToken;
+    const timer = setInterval(() => {
+      void core
+        .authenticateBearer(token)
+        .then((p) => core.setFixedPrincipal(p))
+        .catch(() => {
+          core.setFixedPrincipal(null);
+          logger.warn("stdio fleet credential no longer verifies; session deauthorized until relaunch");
+        });
+    }, FLEET_REVERIFY_MS);
+    timer.unref();
   }
 
   const server = core.newServer();

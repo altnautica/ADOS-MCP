@@ -13,8 +13,6 @@ export interface CliArgs {
   nodeId?: string;
   /** The GCS backend to reach (fleet-mode): local | prod | a Convex url. */
   gcs?: string;
-  /** The operator refresh token that signs the server in to the GCS backend. */
-  refreshToken?: string;
   convexUrl?: string;
   mqttUrl?: string;
   fleetEndpoint?: string;
@@ -36,8 +34,8 @@ Usage:
 Options:
   --target <agent|fleet>   Deployment mode (required)
   --gcs <local|prod|url>   The GCS Convex backend to reach (fleet-mode)
-  --gcs-refresh-token <t>  Operator refresh token minted in the Mission Control MCP tab
-  --token <token>          Bearer token for the launch principal (stdio agent-mode)
+  --token <token>          The bearer for the launch principal: the operator
+                           machine credential (fleet-mode) or an agent token
   --transport <mode>       auto | stdio | http | unix  (default: auto)
   --http-port <port>       Streamable HTTP port in agent-mode (default: 8091)
   --node-id <id>           This node's device id (agent-mode)
@@ -52,8 +50,7 @@ Options:
   --version                Show the version
 
 Environment:
-  ADOS_MCP_TOKEN           Bearer token (alternative to --token)
-  ADOS_GCS_REFRESH_TOKEN   Operator refresh token (alternative to --gcs-refresh-token)
+  ADOS_MCP_TOKEN           The bearer (the operator machine credential in fleet-mode)
   ADOS_CONVEX_URL          Convex url (alternative to --convex-url / --gcs)
   ADOS_MCP_AUDIT_PATH      Local audit file (alternative to --audit-path)
   ADOS_MCP_LOG_LEVEL       debug | info | warn | error  (default: info)
@@ -70,7 +67,6 @@ export function parseCli(argv: string[]): CliArgs {
     options: {
       target: { type: "string" },
       gcs: { type: "string" },
-      "gcs-refresh-token": { type: "string" },
       token: { type: "string" },
       transport: { type: "string", default: "auto" },
       "http-port": { type: "string" },
@@ -113,7 +109,6 @@ export function parseCli(argv: string[]): CliArgs {
     httpPort: values["http-port"] ? Number(values["http-port"]) : undefined,
     nodeId: values["node-id"] as string | undefined,
     gcs: values.gcs as string | undefined,
-    refreshToken: values["gcs-refresh-token"] as string | undefined,
     convexUrl: values["convex-url"] as string | undefined,
     mqttUrl: values["mqtt-url"] as string | undefined,
     fleetEndpoint: values["fleet-endpoint"] as string | undefined,

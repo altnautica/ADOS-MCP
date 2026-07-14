@@ -4,7 +4,7 @@
 // handler runs without passing it, and every call (allowed or denied) produces
 // exactly one audit event.
 
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { verifyToken, type TokenClaims } from "../auth/token.js";
 import { classifyIssuer, type SecretResolver } from "../auth/issuers.js";
 import { routeCapFor, type RouteCapEntry } from "../auth/route-capability.js";
@@ -36,12 +36,21 @@ export interface AuthContext {
   plane: AuditPlane;
   onBox: boolean;
   sourceIp?: string;
+  /**
+   * True when the backend independently gates node ownership (a fleet-mode
+   * machine credential). Such a principal's empty `allowedNodes` means "any node
+   * the operator owns" — the backend rejects a non-owned node — rather than the
+   * fail-closed "no nodes" a self-contained fleet token's empty list means.
+   */
+  backendGated?: boolean;
 }
 
 export interface PipelineConfig {
   planeMode: PlaneMode;
   /** This node's id in agent-mode (the implicit target). */
   nodeId?: string;
+  /** The operator machine credential the server was launched with (fleet-mode). */
+  credential?: string;
   /** True once the raw MAVLink proxy enforce flag is confirmed on. */
   flightEnforced: boolean;
   /** True when the bound target runs in simulation (SITL). */
@@ -123,6 +132,11 @@ export class GatePipeline {
 
   /** Verify a bearer token into an auth context. Throws GateError on any failure. */
   async authenticateBearer(token: string, sourceIp?: string): Promise<AuthContext> {
+    // Fleet-mode: the bearer is the opaque operator machine credential (not a
+    // dot-delimited HMAC token). It is verified against the backend by the plane.
+    if (this.deps.config.planeMode === "fleet" && isMachineCredential(token)) {
+      return this.authenticateCredential(token, sourceIp);
+    }
     let claims: TokenClaims;
     try {
       claims = await verifyToken(token, this.deps.resolver, {
@@ -147,6 +161,44 @@ export class GatePipeline {
       onBox: false,
       sourceIp,
     };
+  }
+
+  /**
+   * Authenticate a fleet-mode machine credential. The presented bearer must equal
+   * the credential the server was launched with (so the verified principal and the
+   * plane's reach identity are the same operator — no confused deputy), and that
+   * credential must still verify live against the backend (catching a revocation).
+   */
+  private async authenticateCredential(token: string, sourceIp?: string): Promise<AuthContext> {
+    const configured = this.deps.config.credential;
+    if (!configured || !credentialEqual(token, configured)) {
+      throw new GateError("unauthorized", "credential not recognized");
+    }
+    const principal = await this.deps.plane.verifyCredential(configured);
+    // Fail closed on a missing OR malformed principal (a backend that returns an
+    // unexpected shape must never resolve to a partial, usable auth context).
+    if (
+      !principal ||
+      typeof principal.userId !== "string" ||
+      principal.userId.length === 0 ||
+      !Array.isArray(principal.scopes) ||
+      !Array.isArray(principal.allowedNodes)
+    ) {
+      throw new GateError("token_revoked", "credential invalid, revoked, or expired");
+    }
+    const claims: TokenClaims = {
+      tokenId: "mcp-credential",
+      operatorId: `cloud:${principal.userId}`,
+      iss: `cloud:${principal.userId}`,
+      scopes: coerceScopes(principal.scopes),
+      allowedNodes: principal.allowedNodes.filter((n): n is string => typeof n === "string"),
+      allowedRoots: [],
+      sourceIpCidr: [],
+      expiresAt: Number.MAX_SAFE_INTEGER, // the backend enforces the credential's expiry
+      operatorPresentRequired: false,
+      label: "mcp-credential",
+    };
+    return { claims, plane: "cloud_relay", onBox: false, sourceIp, backendGated: true };
   }
 
   /** A synthetic on-box principal: local presence is the credential, full scope. */
@@ -402,6 +454,10 @@ export class GatePipeline {
     if (!requested) throw new GateError("node_required", "node is required in fleet-mode");
     const allowed = auth.claims.allowedNodes;
     if (allowed.length === 0) {
+      // A backend-gated machine credential with no explicit allowlist may target
+      // any node the operator owns; the backend rejects a non-owned node. A self-
+      // contained fleet token with an empty list fails closed (confused-deputy).
+      if (auth.backendGated) return requested;
       throw new GateError(
         "node_not_allowed",
         "token has no allowed nodes; mint it with an explicit node list",
@@ -470,6 +526,24 @@ export class GatePipeline {
     };
     await this.deps.audit.record(event);
   }
+}
+
+/** An opaque machine credential (fleet-mode) vs a dot-delimited HMAC token. */
+function isMachineCredential(token: string): boolean {
+  return token.startsWith("ados_mc_") || !token.includes(".");
+}
+
+/** Constant-time compare of two credentials (hash to a fixed length first). */
+function credentialEqual(a: string, b: string): boolean {
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
+/** Keep only the strings that name a real scope group; drop anything unknown. */
+function coerceScopes(scopes: string[]): ScopeGroup[] {
+  const valid = new Set<string>(SCOPE_GROUPS);
+  return scopes.filter((s): s is ScopeGroup => valid.has(s));
 }
 
 function summarize(value: unknown): string {

@@ -49,12 +49,18 @@ the operator granted the scope and confirms at call time. Tool annotations
 (`readOnlyHint`, `destructiveHint`) are advertised honestly but are hints, never
 the enforcement point. The server enforces.
 
-## Tokens
+## Credentials
 
-The connection credential is a self-contained, scoped, revocable bearer token
-signed with HMAC. It carries the scopes it grants, the nodes it may target, and
-an expiry. The signing key is derived at request time from the node's pairing key
-(LAN) or a per-operator secret (fleet); the repository holds no secret material.
+The connection credential differs by mode:
+
+- **agent-mode** uses a self-contained, scoped, revocable HMAC token whose signing
+  key derives at request time from the node's pairing key. The repository holds no
+  secret material and the token verifies offline.
+- **fleet-mode** uses one opaque, scoped, revocable machine credential the operator
+  mints in the GCS tab. The backend stores only its hash and verifies it on each
+  reach; the presented bearer must equal the server's configured credential (so the
+  verified principal and the reach identity are one operator), and a revocation in
+  the tab cuts the server off within the re-verification window.
 
 ## Audit
 

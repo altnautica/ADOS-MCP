@@ -45,17 +45,18 @@ Both expose the identical tools; only the reach differs.
 
 ## Quick start (Claude Code)
 
-Sign in and mint a scoped token in the Mission Control MCP tab, then run the server on your machine:
+Sign in and mint one scoped machine credential in the Mission Control MCP tab, then run the server on your machine:
 
 ```bash
 # Your whole fleet, through Mission Control (production backend):
-export ADOS_GCS_REFRESH_TOKEN="paste-the-operator-token-from-the-tab"
-export ADOS_MCP_TOKEN="paste-the-scoped-mcp-token-from-the-tab"
+export ADOS_MCP_TOKEN="paste-the-machine-credential-from-the-tab"
 claude mcp add ados -- npx -y @altnautica/ados-mcp --target fleet --gcs prod
 
 # One drone, directly on the LAN:
 claude mcp add ados-lan -- npx -y @altnautica/ados-mcp --target agent <host>
 ```
+
+The credential is scoped and revocable, and stored on the backend only as a hash. Revoke it in the tab to cut a server off instantly.
 
 Then ask your client for fleet status. See [`docs/`](./docs) for the full connect recipes and the tool catalog.
 

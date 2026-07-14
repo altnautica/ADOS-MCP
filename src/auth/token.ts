@@ -115,9 +115,9 @@ export async function verifyToken(
   const { claims, blob, signature } = parseToken(token);
   const ref = classifyIssuer(claims.iss);
 
-  // Try each candidate key (the cloud issuer supplies current + previous so a
-  // token minted just before a rotation still verifies). Accept on the first
-  // match; a constant-time compare runs inside subtle.verify per key.
+  // Try each candidate key the resolver returns (a family may supply more than
+  // one to bridge a key rotation). Accept on the first match; a constant-time
+  // compare runs inside subtle.verify per key.
   const keys = await resolver(ref);
   let ok = false;
   for (const key of keys) {

@@ -10,6 +10,7 @@ import type { AuditEvent } from "../src/audit/event.js";
 import type { AuditSink } from "../src/audit/sink.js";
 import type {
   CommandOutcome,
+  CredentialPrincipal,
   FirmwareHint,
   NodeRef,
   NodeStatus,
@@ -32,6 +33,15 @@ export class FakePlane implements PlatformPlane {
   }
   async health(): Promise<PlaneHealth> {
     return { ok: true, target: "fake" };
+  }
+  async verifyCredential(credential: string): Promise<CredentialPrincipal | null> {
+    if (credential === "revoked-cred") return null;
+    // A backend that returns a malformed principal (missing scopes) must fail closed.
+    if (credential === "malformed-cred") return { userId: "op-fake" } as unknown as CredentialPrincipal;
+    // "cred:read,admin" encodes the scopes for a test; default read+safe_write+admin.
+    const scopeStr = credential.split(":")[1];
+    const scopes = scopeStr ? scopeStr.split(",") : ["read", "safe_write", "admin"];
+    return { userId: "op-fake", scopes, allowedNodes: [] };
   }
   async getStatus(_node: NodeRef): Promise<NodeStatus> {
     return this.status;

@@ -77,7 +77,7 @@ export class ServerCore {
           })
         : new GcsPlane({
             ...(config.convexUrl ? { convexUrl: config.convexUrl } : {}),
-            ...(config.refreshToken ? { refreshToken: config.refreshToken } : {}),
+            ...(config.credential ? { credential: config.credential } : {}),
             ...(config.mqttUrl ? { mqttUrl: config.mqttUrl } : {}),
             endpoint: config.fleetEndpoint,
           }));
@@ -93,6 +93,7 @@ export class ServerCore {
     const pipelineConfig: PipelineConfig = {
       planeMode: config.mode,
       ...(config.nodeId ? { nodeId: config.nodeId } : {}),
+      ...(config.credential ? { credential: config.credential } : {}),
       flightEnforced: config.flightEnforced,
       sim: config.sim,
     };
@@ -113,18 +114,10 @@ export class ServerCore {
   }
 
   private buildResolver(): SecretResolver {
-    // In fleet-mode the AI client's `cloud:` token is verified against the
-    // operator's HMAC secret, fetched from the GCS backend by the bound plane
-    // (once it holds an operator session). The current and just-rotated previous
-    // secrets both verify, so a token minted right before a rotation still works.
-    const plane = this.plane;
-    const cloudBackend =
-      plane instanceof GcsPlane
-        ? async (): Promise<Uint8Array[] | null> => {
-            const s = await plane.getOperatorSecret();
-            return s.previous ? [s.current, s.previous] : [s.current];
-          }
-        : undefined;
+    // The self-contained-token resolver serves the agent (LAN) and local (dev)
+    // issuers. Fleet-mode does NOT use a self-contained cloud token: its bearer
+    // is the opaque machine credential, verified by the plane against the backend
+    // in the pipeline's fleet-mode auth path.
     return makeResolver({
       ...(this.config.pairingKey
         ? {
@@ -134,7 +127,6 @@ export class ServerCore {
             },
           }
         : {}),
-      ...(cloudBackend ? { cloud: cloudBackend } : {}),
       ...(this.config.localDevSecret ? { local: this.config.localDevSecret } : {}),
     });
   }

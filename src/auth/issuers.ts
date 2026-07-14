@@ -1,12 +1,15 @@
 // Issuer classification and per-issuer verify-key resolution.
 //
 // A token's `iss` claim names the issuer family; the verifier resolves the key
-// for that family. Three families:
-//   - cloud:<userId>  -> the per-operator HMAC secret (fleet-mode, hosted).
+// for that family. The self-contained-token families:
 //   - agent:<deviceId> -> a key derived from the agent's pairing key by
 //     HKDF-SHA256 under a domain-separation label DISTINCT from the plugin
 //     capability token's, so a plugin token can never verify as an MCP token.
 //   - local            -> a dev secret; the node claim check is skipped.
+//   - cloud:<userId>   -> retained only to cleanly REJECT a legacy fleet HMAC
+//     token: fleet-mode now authenticates with an opaque machine credential
+//     verified against the backend (see gate/pipeline authenticateCredential),
+//     not a self-contained HMAC token, so no cloud backend is wired here.
 //
 // The HKDF mechanism mirrors the platform's agent-token derivation; only the
 // label differs. The single-HMAC ws-ticket / dashboard-session tokens use a

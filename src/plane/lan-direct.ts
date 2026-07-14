@@ -8,6 +8,7 @@ import { GateError } from "../gate/errors.js";
 import { logger } from "../util/logger.js";
 import type {
   CommandOutcome,
+  CredentialPrincipal,
   FirmwareHint,
   NodeRef,
   NodeStatus,
@@ -115,6 +116,12 @@ export class LanDirectPlane implements PlatformPlane {
         target: this.baseUrl,
       };
     }
+  }
+
+  async verifyCredential(_credential: string): Promise<CredentialPrincipal | null> {
+    // Agent-mode has no backend to verify a machine credential against; its auth
+    // is the self-contained token path, not this.
+    return null;
   }
 
   getStatus(_node: NodeRef): Promise<NodeStatus> {
