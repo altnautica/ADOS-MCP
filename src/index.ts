@@ -13,6 +13,7 @@ import { FileAuditSink } from "./audit/file-sink.js";
 import { registerReadTools } from "./registry/read-tools.js";
 import { registerReadResources } from "./registry/read-resources.js";
 import { registerAdminTools } from "./registry/admin-tools.js";
+import { registerReadPrompts } from "./registry/read-prompts.js";
 import { SERVER_VERSION } from "./version.js";
 import { logger } from "./util/logger.js";
 import type http from "node:http";
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
   registerReadTools(core.tools, config.auditPath);
   registerReadResources(core.resources);
   registerAdminTools(core.tools);
+  registerReadPrompts(core.prompts);
   const info = core.info();
   logger.info("ados-mcp starting", {
     version: info.version,

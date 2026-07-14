@@ -246,6 +246,14 @@ export class GatePipeline {
       const baseEntry = routeCapFor(name);
       if (!baseEntry) throw new GateError("no_route_capability", `no route cap for ${name}`);
 
+      // A drone-direct-only tool cannot be served over the GCS relay.
+      if (baseEntry.agentModeOnly && this.deps.config.planeMode === "fleet") {
+        throw new GateError(
+          "agent_mode_only",
+          `${name} is not available over the GCS relay; reach the drone directly with --target agent <host>`,
+        );
+      }
+
       // Fleet-wide tools (fleet enumeration, local audit) target no single node,
       // so they skip the per-node targeting gate that would otherwise reject a
       // node-less call in fleet-mode.

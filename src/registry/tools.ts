@@ -60,6 +60,9 @@ export class ToolRegistry {
       // Any tool that changes in-flight behavior is hidden until the enforce
       // flag is on, whether its class is flight or (like emergency_stop) destructive.
       if ((entry.scope === "flight" || entry.affectsFlight) && !ctx.flightEnforced) continue;
+      // A drone-direct-only tool cannot be served over the GCS relay, so it is
+      // hidden in fleet-mode rather than advertised only to always fail.
+      if (entry.agentModeOnly && ctx.fleetMode) continue;
       out.push(this.toPublic(def));
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

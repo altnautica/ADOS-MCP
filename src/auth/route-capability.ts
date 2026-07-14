@@ -39,6 +39,14 @@ export interface RouteCapEntry {
    * are never exposed to a token without the flight scope.
    */
   affectsFlight?: boolean;
+  /**
+   * True when the tool can only be served over the drone-direct (agent) reach —
+   * the GCS relay vocabulary has no synchronous parameter/config read/write, no
+   * plugin install, no plugin-config set, no supervisor restart. Such a tool is
+   * hidden from tools/list and refused with `agent_mode_only` in fleet-mode, so a
+   * fleet-mode client never sees a tool that would always return not_supported.
+   */
+  agentModeOnly?: boolean;
 }
 
 const R = (
@@ -67,17 +75,18 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
   // telemetry.* (read)
   R("telemetry.snapshot", "read", "telemetry.read"),
   R("telemetry.subscribe", "read", "telemetry.read"),
-  // params.* (read + gated write)
-  R("params.read_all", "read", "telemetry.read"),
-  R("params.get", "read", "telemetry.read"),
-  R("params.explain", "read", "telemetry.read"),
-  R("params.diff_from_default", "read", "telemetry.read"),
-  R("params.optimize", "read", "telemetry.read"),
-  R("params.set", "admin", "config.set", { escalates: true }),
-  R("params.reset_all", "destructive", "params.reset_all"),
-  // config.* (read + gated write)
-  R("config.get", "read", "config.get", { secretPossible: true }),
-  R("config.set", "safe_write", "config.set", { escalates: true }),
+  // params.* (read + gated write) — the FC parameter surface is not on the GCS
+  // relay, so these are drone-direct-only (agentModeOnly).
+  R("params.read_all", "read", "telemetry.read", { agentModeOnly: true }),
+  R("params.get", "read", "telemetry.read", { agentModeOnly: true }),
+  R("params.explain", "read", "telemetry.read", { agentModeOnly: true }),
+  R("params.diff_from_default", "read", "telemetry.read", { agentModeOnly: true }),
+  R("params.optimize", "read", "telemetry.read", { agentModeOnly: true }),
+  R("params.set", "admin", "config.set", { escalates: true, agentModeOnly: true }),
+  R("params.reset_all", "destructive", "params.reset_all", { agentModeOnly: true }),
+  // config.* (read + gated write) — /api/config is drone-direct-only.
+  R("config.get", "read", "config.get", { secretPossible: true, agentModeOnly: true }),
+  R("config.set", "safe_write", "config.set", { escalates: true, agentModeOnly: true }),
   // services.* (read + gated write)
   R("services.list", "read", "telemetry.read"),
   R("services.restart", "admin", "process.spawn", { escalates: true }),
@@ -88,7 +97,10 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
   // armed-critical MAVLink router and video units, so it carries the same flight
   // gate that services.restart escalates those units to (never a plain admin
   // confirm-only path to a more-destructive action).
-  R("admin.agent.restart_supervisor", "flight", "process.spawn", { affectsFlight: true }),
+  R("admin.agent.restart_supervisor", "flight", "process.spawn", {
+    affectsFlight: true,
+    agentModeOnly: true,
+  }),
   R("admin.pairing.info", "read", "telemetry.read"),
   R("admin.pairing.generate_code", "admin", "config.set.network"),
   R("admin.pairing.claim", "admin", "config.set.network"),
@@ -97,14 +109,15 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
   R("admin.wfb.tx_power", "admin", "network.outbound"),
   R("admin.network.wifi_join", "admin", "network.outbound"),
   R("admin.network.wifi_leave", "admin", "network.outbound"),
-  // plugins.*
-  R("plugins.list", "read", "telemetry.read"),
-  R("plugins.info", "read", "telemetry.read"),
-  R("plugins.install", "admin", "process.spawn"),
+  // plugins.* — enable/disable/remove ride the relay; list/info (live plugin
+  // state) and install/config are drone-direct-only.
+  R("plugins.list", "read", "telemetry.read", { agentModeOnly: true }),
+  R("plugins.info", "read", "telemetry.read", { agentModeOnly: true }),
+  R("plugins.install", "admin", "process.spawn", { agentModeOnly: true }),
   R("plugins.enable", "admin", "process.spawn"),
   R("plugins.disable", "admin", "process.spawn"),
   R("plugins.remove", "admin", "process.spawn"),
-  R("plugins.config", "safe_write", "config.set"),
+  R("plugins.config", "safe_write", "config.set", { agentModeOnly: true }),
   // flight.* (gated, off by default)
   R("flight.arm", "flight", "vehicle.command", { affectsFlight: true }),
   R("flight.disarm", "flight", "vehicle.command", { affectsFlight: true }),
