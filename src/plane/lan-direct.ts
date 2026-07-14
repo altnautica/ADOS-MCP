@@ -343,14 +343,20 @@ export class LanDirectPlane implements PlatformPlane {
   }
 }
 
-/** Wrap a successful REST write response as a completed CommandOutcome. A failed
- * request throws a GateError before this is reached, so arriving here means 2xx. */
+/** Wrap a REST write response as a CommandOutcome. A transport failure throws a
+ * GateError before this is reached, so arriving here means HTTP 2xx — but the
+ * agent may report an in-body failure (`{ success: false }`) on a 2xx, so honor
+ * that rather than reporting a failed command as completed (matches GcsPlane). */
 export function toOutcome(data: unknown): CommandOutcome {
-  const message =
-    data && typeof data === "object" && typeof (data as Record<string, unknown>).message === "string"
-      ? ((data as Record<string, unknown>).message as string)
-      : undefined;
-  return { ok: true, status: "completed", ...(message ? { message } : {}), ...(data !== undefined && data !== null ? { data } : {}) };
+  const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : undefined;
+  const message = obj && typeof obj.message === "string" ? (obj.message as string) : undefined;
+  const bodyFailed = obj?.success === false;
+  return {
+    ok: !bodyFailed,
+    status: bodyFailed ? "failed" : "completed",
+    ...(message ? { message } : {}),
+    ...(data !== undefined && data !== null ? { data } : {}),
+  };
 }
 
 /** Pull a battery-remaining percent out of a status document, or null. */

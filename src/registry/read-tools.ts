@@ -17,7 +17,6 @@ import {
 } from "../param-metadata/loader.js";
 import type { FirmwareHint, ParamEntry } from "../plane/platform-plane.js";
 import { queryAuditFile } from "../audit/file-sink.js";
-import { redact } from "../audit/event.js";
 
 const NODE = z.string().optional().describe("Device id (fleet-mode) or host (agent-mode)");
 
@@ -138,12 +137,10 @@ export function registerReadTools(reg: ToolRegistry, auditPath: string): void {
       description: "Read the agent configuration document (secret-shaped fields redacted).",
       inputSchema: z.object({ node: NODE }),
       annotations: READ,
-      handler: async (_a, ctx) => {
-        // Redact secret-shaped values from the RETURNED config unless the token
-        // holds secret_read; the pipeline redacts arguments, not results.
-        const config = await ctx.plane.getConfig(ctx.node);
-        return redact(config, ctx.secretRead).value;
-      },
+      // The pipeline now redacts EVERY tool result against the token's secret_read
+      // (not just this tool), so config.get returns the raw document and lets the
+      // central choke point mask it — one redaction site, no double-marking.
+      handler: (_a, ctx) => ctx.plane.getConfig(ctx.node),
     },
     {
       name: "params.read_all",

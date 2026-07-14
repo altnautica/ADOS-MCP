@@ -25,7 +25,7 @@ import { sourceIpAllowed } from "../util/cidr.js";
 import { logger } from "../util/logger.js";
 import type { AuditSink } from "../audit/sink.js";
 import type { AuditDecision, AuditEvent, AuditPlane } from "../audit/event.js";
-import { keyIsSecret, redact, redactArgs, semanticWriteArgs } from "../audit/event.js";
+import { keyIsSecret, redact, redactArgs, semanticWriteArgs, REDACTION_MARKER } from "../audit/event.js";
 import type { ToolRegistry } from "../registry/tools.js";
 import type { PlatformPlane, PlaneMode } from "../plane/platform-plane.js";
 import type { PublicToolInfo, ResourceDefinition, ToolCtx } from "../registry/types.js";
@@ -102,12 +102,18 @@ function isNetworkConfigPath(path: unknown): boolean {
 /** Restarting one of these units mid-flight is flight-critical, so it escalates.
  * Keyed on the canonical `ados-<name>` unit names the agent exposes (the MAVLink
  * router unit is `ados-mavlink-router`). */
-const ARMED_CRITICAL_UNITS = new Set([
-  "ados-mavlink",
-  "ados-mavlink-router",
-  "ados-supervisor",
-  "ados-video",
-]);
+// Flight-critical service ROOTS: restarting a unit whose name contains any of
+// these while armed can drop the FC link, the orchestrator, or the video pipeline.
+// A substring match (rather than an exact allowlist) fails SAFE — an alias the
+// agent accepts (mavlink_router, mavlinkrouter, ados-video-relay, …) still
+// escalates to the flight gate. Over-escalating a benign unit only costs extra
+// auth; under-escalating a critical one is the danger.
+const ARMED_CRITICAL_ROOTS = ["mavlink", "supervisor", "video"];
+
+function isArmedCriticalUnit(name: unknown): boolean {
+  const u = canonicalUnit(name);
+  return ARMED_CRITICAL_ROOTS.some((root) => u.includes(root));
+}
 
 /**
  * Canonicalize a service unit name the way the agent does before the armed-
@@ -117,6 +123,9 @@ const ARMED_CRITICAL_UNITS = new Set([
 function canonicalUnit(name: unknown): string {
   let n = String(name ?? "").trim().toLowerCase();
   if (n.endsWith(".service")) n = n.slice(0, -".service".length);
+  // Normalize separators so mavlink_router / mavlink.router / mavlink--router all
+  // canonicalize the same way (a separator alias can't dodge the root match).
+  n = n.replace(/[_.\s]+/g, "-").replace(/-+/g, "-");
   if (n && !n.startsWith("ados-")) n = `ados-${n}`;
   return n;
 }
@@ -324,19 +333,27 @@ export class GatePipeline {
 
       // The handler already ran; an audit-write failure here must not re-label a
       // completed call as denied nor tell the client it failed. Record best-effort
-      // and surface the write failure to the operator log. The result is redacted
-      // (allowSecrets=false) before it is persisted, so a secret returned to a
-      // secret_read client is never written into the durable audit — the client
-      // still receives the cleartext result; only the audit record is redacted.
+      // and surface the write failure to the operator log.
       // A config.set/plugins.config whose semantic key is secret-shaped carries a
       // secret the client wrote; never persist its value in the audit result.
       const secretKeyWrite =
         (name === "config.set" || name === "plugins.config") &&
         typeof args.key === "string" &&
         keyIsSecret(args.key);
+      // The always-redacted copy: the durable audit is never cleartext, and it is
+      // what a client WITHOUT secret_read receives.
       const { value: safeResult, redacted: resultRedacted } = redact(value, false);
       const resultHadSecret = resultRedacted || secretKeyWrite;
       const auditResult = secretKeyWrite ? "[redacted write]" : summarize(safeResult);
+      // The client return: raw only when the token holds secret_read; otherwise the
+      // redacted copy, so a read-only token never receives a secret-shaped value in
+      // cleartext. A secret-shaped write echo (the value under a `value` key with the
+      // secret name in `key`) is masked for a non-secret_read client too.
+      let clientValue: unknown = value;
+      if (!allowSecrets) {
+        clientValue = safeResult;
+        if (secretKeyWrite) clientValue = maskEchoedSecret(clientValue, args.value);
+      }
       try {
         await this.writeAudit(
           auth,
@@ -356,7 +373,7 @@ export class GatePipeline {
           err: String(auditErr),
         });
       }
-      return wrapResult(value);
+      return wrapResult(clientValue);
     } catch (err) {
       const gerr = err instanceof GateError ? err : new GateError("not_supported", String(err));
       const auditDecision: AuditDecision =
@@ -394,7 +411,9 @@ export class GatePipeline {
         });
       }
       node = this.resolveNode({ node: parsed?.node }, auth);
-      const rl = this.deps.rateLimiter.check(auth.claims.tokenId, "tool");
+      // Resource reads use their own (higher) budget so polling resources does not
+      // drain the tool-call budget and vice-versa.
+      const rl = this.deps.rateLimiter.check(auth.claims.tokenId, "resource");
       if (!rl.allowed) {
         throw new GateError("rate_limited", `rate limit exceeded reading ${uri}`, {
           retryAfterMs: rl.retryAfterMs,
@@ -422,7 +441,8 @@ export class GatePipeline {
         mcpSession,
         resultHadSecret,
       ).catch((e) => logger.warn("resource audit failed after a successful read", { uri, err: String(e) }));
-      return value;
+      // Raw only for a secret_read token; otherwise the redacted copy.
+      return allowSecrets ? value : safeResult;
     } catch (err) {
       const gerr = err instanceof GateError ? err : new GateError("not_supported", String(err));
       await this.writeAudit(
@@ -491,7 +511,7 @@ export class GatePipeline {
     if (tool === "config.set" && isNetworkConfigPath(args.key)) {
       return { scope: "admin", capability: "network.outbound", safetyClass: "admin" };
     }
-    if (tool === "services.restart" && ARMED_CRITICAL_UNITS.has(canonicalUnit(args.name))) {
+    if (tool === "services.restart" && isArmedCriticalUnit(args.name)) {
       return { scope: "flight", capability: "vehicle.command", safetyClass: "flight" };
     }
     return { scope: entry.scope, capability: entry.capability, safetyClass: entry.safetyClass };
@@ -513,10 +533,14 @@ export class GatePipeline {
       semanticWriteArgs(tool, args),
       allowSecrets,
     );
-    // A secret was disclosed to the client when the token allowed it AND either
-    // an argument or the returned result carried one.
-    const disclosedSecret = allowSecrets && (argsTouched || resultHadSecret);
+    // A secret-shaped value was present in either an argument or the result.
     const anyRedaction = argsTouched || resultHadSecret;
+    // The flags describe what the CLIENT actually received: `sensitiveRead` when a
+    // secret_read token got it raw; `redacted` when a non-secret_read token got a
+    // masked value. Exactly one is set on a secret-bearing call, so `redacted:true`
+    // is honest — it means the client's value (and the stored args) were masked.
+    const disclosedSecret = allowSecrets && anyRedaction;
+    const maskedForClient = !allowSecrets && anyRedaction;
     const event: AuditEvent = {
       tsUs: Date.now() * 1000,
       tokenId: auth.claims.tokenId,
@@ -530,7 +554,7 @@ export class GatePipeline {
       mcpSession,
       plane: auth.plane,
       ...(disclosedSecret ? { sensitiveRead: true } : {}),
-      ...(anyRedaction ? { redacted: true } : {}),
+      ...(maskedForClient ? { redacted: true } : {}),
     };
     await this.deps.audit.record(event);
   }
@@ -552,6 +576,27 @@ function credentialEqual(a: string, b: string): boolean {
 function coerceScopes(scopes: string[]): ScopeGroup[] {
   const valid = new Set<string>(SCOPE_GROUPS);
   return scopes.filter((s): s is ScopeGroup => valid.has(s));
+}
+
+/**
+ * Mask a secret the client just wrote when the agent echoes it back under a
+ * non-secret-shaped key (e.g. `{ data: { key: "network.psk", value: "s3cr3t" } }`),
+ * which plain key-based redaction misses. Deep-replaces any string equal to the
+ * written secret with the redaction marker. A no-op when there is no secret value.
+ */
+function maskEchoedSecret(value: unknown, secretVal: unknown): unknown {
+  if (typeof secretVal !== "string" || secretVal.length === 0) return value;
+  const walk = (v: unknown): unknown => {
+    if (typeof v === "string") return v === secretVal ? REDACTION_MARKER : v;
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = walk(val);
+      return out;
+    }
+    return v;
+  };
+  return walk(value);
 }
 
 function summarize(value: unknown): string {

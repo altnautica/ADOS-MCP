@@ -117,7 +117,9 @@ export class ServerCore {
     // The self-contained-token resolver serves the agent (LAN) and local (dev)
     // issuers. Fleet-mode does NOT use a self-contained cloud token: its bearer
     // is the opaque machine credential, verified by the plane against the backend
-    // in the pipeline's fleet-mode auth path.
+    // in the pipeline's fleet-mode auth path. The agent/local issuers are wired
+    // only when a pairing key / local dev secret is present (a dev convenience);
+    // in production fleet-mode neither is set, so no self-contained token verifies.
     return makeResolver({
       ...(this.config.pairingKey
         ? {
@@ -198,7 +200,10 @@ export class ServerCore {
     const plane = this.cachedPlaneHealth;
     const info = this.info();
     return {
-      ok: auditHealthy,
+      // 200 means the registries are up AND the bound plane responds; a down plane
+      // (backend/credential unreachable) is NOT ok, so an LB stops routing reads to
+      // a server that would fail every call rather than seeing a misleading 200.
+      ok: auditHealthy && plane.ok,
       degraded: !plane.ok,
       version: info.version,
       mcpRevision: info.mcpRevision,

@@ -8,6 +8,7 @@ import {
   registerFakeReadTool,
 } from "../helpers.js";
 import type { ServerCore } from "../../src/server.js";
+import { toOutcome } from "../../src/plane/lan-direct.js";
 
 function registerFakeRestartTool(core: ServerCore): void {
   core.tools.register({
@@ -24,6 +25,17 @@ function registerFakeEmergencyStop(core: ServerCore): void {
     description: "fake e-stop",
     inputSchema: z.object({ confirm: z.string().optional(), confirm_id: z.string().optional() }),
     handler: async () => ({ stopped: true }),
+  });
+}
+
+/** A read tool that returns a secret-shaped field; status.full has a route-cap row. */
+function registerFakeSecretRead(core: ServerCore): void {
+  core.tools.register({
+    name: "status.full",
+    description: "fake full status with a secret field",
+    inputSchema: z.object({ node: z.string().optional() }),
+    annotations: { readOnlyHint: true },
+    handler: async () => ({ wifi_psk: "abc123", mode: "GUIDED" }),
   });
 }
 
@@ -197,5 +209,74 @@ describe("GatePipeline audit-fix behaviors", () => {
     const auth = await readAuth(core, ["read"]);
     const result = await core.pipeline.callTool("status.get", {}, auth, "s");
     expect(result.content[0]?.text).toContain("ok");
+  });
+});
+
+describe("central result redaction (secret_read)", () => {
+  it("masks a secret-shaped field for a read-only token and audits redacted", async () => {
+    const { core, audit } = makeCore();
+    registerFakeSecretRead(core);
+    const auth = await readAuth(core, ["read"]);
+    const result = await core.pipeline.callTool("status.full", {}, auth, "s");
+    const body = JSON.parse(result.content[0]!.text) as { wifi_psk: string; mode: string };
+    expect(body.wifi_psk).toBe("[REDACTED]");
+    expect(body.mode).toBe("GUIDED");
+    const ev = audit.events.at(-1)!;
+    expect(ev.redacted).toBe(true);
+    expect(ev.sensitiveRead).toBeUndefined();
+  });
+
+  it("returns the raw secret for a secret_read token and audits sensitiveRead", async () => {
+    const { core, audit } = makeCore();
+    registerFakeSecretRead(core);
+    const auth = await readAuth(core, ["read", "secret_read"]);
+    const result = await core.pipeline.callTool("status.full", {}, auth, "s");
+    const body = JSON.parse(result.content[0]!.text) as { wifi_psk: string };
+    expect(body.wifi_psk).toBe("abc123");
+    const ev = audit.events.at(-1)!;
+    expect(ev.sensitiveRead).toBe(true);
+    expect(ev.redacted).toBeUndefined();
+  });
+
+  it("does not flag a read with no secret-shaped field", async () => {
+    const { core, audit } = makeCore();
+    registerFakeReadTool(core);
+    const auth = await readAuth(core, ["read"]);
+    await core.pipeline.callTool("status.get", {}, auth, "s");
+    const ev = audit.events.at(-1)!;
+    expect(ev.redacted).toBeUndefined();
+    expect(ev.sensitiveRead).toBeUndefined();
+  });
+});
+
+describe("armed-critical service-restart alias hardening", () => {
+  it("escalates a flight-critical unit ALIAS to the flight scope (separator-normalized)", async () => {
+    const { core } = makeCore();
+    registerFakeRestartTool(core);
+    const admin = await readAuth(core, ["read", "admin"]);
+    // an admin token lacks flight, so a restart of a flight-critical alias is refused
+    for (const name of ["mavlink_router", "MAVLink-Router.service", "ados-video-relay"]) {
+      await expect(
+        core.pipeline.callTool("services.restart", { name, confirm: true }, admin, "s"),
+      ).rejects.toMatchObject({ reason: "scope_missing" });
+    }
+  });
+
+  it("does not over-escalate a benign unit to the flight scope", async () => {
+    const { core } = makeCore();
+    registerFakeRestartTool(core);
+    const admin = await readAuth(core, ["read", "admin"]);
+    // a benign unit stays at admin — an admin token is not blocked for lacking flight
+    await expect(
+      core.pipeline.callTool("services.restart", { name: "ados-logd", confirm: true }, admin, "s"),
+    ).resolves.toBeDefined();
+  });
+});
+
+describe("LanDirect toOutcome honors an in-body failure", () => {
+  it("reports a 2xx with { success:false } as failed, not completed", () => {
+    expect(toOutcome({ success: false, message: "nope" })).toMatchObject({ ok: false, status: "failed" });
+    expect(toOutcome({ success: true })).toMatchObject({ ok: true, status: "completed" });
+    expect(toOutcome({ restarted: "ados-logd" })).toMatchObject({ ok: true, status: "completed" });
   });
 });
