@@ -55,9 +55,27 @@ const SECRET_KEY_PATTERNS = [
 
 export const REDACTION_MARKER = "[REDACTED]";
 
-function keyIsSecret(key: string): boolean {
+export function keyIsSecret(key: string): boolean {
   const k = key.toLowerCase();
   return SECRET_KEY_PATTERNS.some((p) => k.includes(p));
+}
+
+/**
+ * The flatten-to-value write tools (config.set / plugins.config) carry the value
+ * under the arg key `value` while its semantic name is in `key`, so plain key-
+ * name redaction misses a secret-named config key (e.g. network.psk). Present the
+ * value under its semantic key so the existing key-based redaction walk catches
+ * it, without echoing the raw `value` field.
+ */
+export function semanticWriteArgs(
+  tool: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if ((tool === "config.set" || tool === "plugins.config") && typeof args.key === "string") {
+    const { value, ...rest } = args;
+    return { ...rest, [args.key]: value };
+  }
+  return args;
 }
 
 /**

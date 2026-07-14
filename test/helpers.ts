@@ -9,6 +9,7 @@ import type { ScopeGroup } from "../src/auth/scopes.js";
 import type { AuditEvent } from "../src/audit/event.js";
 import type { AuditSink } from "../src/audit/sink.js";
 import type {
+  CommandOutcome,
   FirmwareHint,
   NodeRef,
   NodeStatus,
@@ -67,6 +68,42 @@ export class FakePlane implements PlatformPlane {
   }
   async listNodes(): Promise<NodeSummary[]> {
     return [{ deviceId: "fake-node", online: true, battery: 78 }];
+  }
+  async restartService(_node: NodeRef, unit: string): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", message: `restarted ${unit}` };
+  }
+  async restartSupervisor(_node: NodeRef): Promise<CommandOutcome> {
+    return { ok: true, status: "completed" };
+  }
+  async setParam(_node: NodeRef, name: string, value: number): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { name, value } };
+  }
+  async setConfig(_node: NodeRef, key: string, value: string): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { key, value } };
+  }
+  async pluginInstall(_node: NodeRef, url: string): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { url } };
+  }
+  async pluginEnable(_node: NodeRef, id: string): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { id, action: "enabled" } };
+  }
+  async pluginDisable(_node: NodeRef, id: string): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { id, action: "disabled" } };
+  }
+  async pluginRemove(_node: NodeRef, id: string): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { id, action: "uninstalled" } };
+  }
+  async pluginConfig(_node: NodeRef, id: string, key: string, value: unknown): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { id, key, value } };
+  }
+  async getPlugins(_node: NodeRef): Promise<unknown> {
+    return [{ pluginId: "demo", enabled: true }];
+  }
+  async getPluginInfo(_node: NodeRef, id: string): Promise<unknown> {
+    return { pluginId: id, enabled: true };
+  }
+  async queryLogs(_node: NodeRef): Promise<unknown> {
+    return { entries: [{ seq: 1, message: "hello" }], total: 1 };
   }
 }
 

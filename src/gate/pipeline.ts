@@ -25,7 +25,7 @@ import { sourceIpAllowed } from "../util/cidr.js";
 import { logger } from "../util/logger.js";
 import type { AuditSink } from "../audit/sink.js";
 import type { AuditDecision, AuditEvent, AuditPlane } from "../audit/event.js";
-import { redact, redactArgs } from "../audit/event.js";
+import { keyIsSecret, redact, redactArgs, semanticWriteArgs } from "../audit/event.js";
 import type { ToolRegistry } from "../registry/tools.js";
 import type { PlatformPlane, PlaneMode } from "../plane/platform-plane.js";
 import type { PublicToolInfo, ResourceDefinition, ToolCtx } from "../registry/types.js";
@@ -90,8 +90,27 @@ function isNetworkConfigPath(path: unknown): boolean {
   return /(^|\.)(network|wifi|wfb|uplink|modem|ethernet|radio)(\.|$)/i.test(path);
 }
 
-/** Restarting one of these units mid-flight is flight-critical, so it escalates. */
-const ARMED_CRITICAL_UNITS = new Set(["ados-mavlink", "ados-supervisor", "ados-video"]);
+/** Restarting one of these units mid-flight is flight-critical, so it escalates.
+ * Keyed on the canonical `ados-<name>` unit names the agent exposes (the MAVLink
+ * router unit is `ados-mavlink-router`). */
+const ARMED_CRITICAL_UNITS = new Set([
+  "ados-mavlink",
+  "ados-mavlink-router",
+  "ados-supervisor",
+  "ados-video",
+]);
+
+/**
+ * Canonicalize a service unit name the way the agent does before the armed-
+ * critical check, so an alias (`video`), a `.service` suffix, or a case variant
+ * can never slip an armed-critical restart past the flight escalation.
+ */
+function canonicalUnit(name: unknown): string {
+  let n = String(name ?? "").trim().toLowerCase();
+  if (n.endsWith(".service")) n = n.slice(0, -".service".length);
+  if (n && !n.startsWith("ados-")) n = `ados-${n}`;
+  return n;
+}
 
 export class GatePipeline {
   private readonly operatorPresent: OperatorPresence;
@@ -249,7 +268,15 @@ export class GatePipeline {
       // (allowSecrets=false) before it is persisted, so a secret returned to a
       // secret_read client is never written into the durable audit — the client
       // still receives the cleartext result; only the audit record is redacted.
-      const { value: safeResult, redacted: resultHadSecret } = redact(value, false);
+      // A config.set/plugins.config whose semantic key is secret-shaped carries a
+      // secret the client wrote; never persist its value in the audit result.
+      const secretKeyWrite =
+        (name === "config.set" || name === "plugins.config") &&
+        typeof args.key === "string" &&
+        keyIsSecret(args.key);
+      const { value: safeResult, redacted: resultRedacted } = redact(value, false);
+      const resultHadSecret = resultRedacted || secretKeyWrite;
+      const auditResult = secretKeyWrite ? "[redacted write]" : summarize(safeResult);
       try {
         await this.writeAudit(
           auth,
@@ -257,7 +284,7 @@ export class GatePipeline {
           args,
           node,
           decision,
-          summarize(safeResult),
+          auditResult,
           started,
           allowSecrets,
           mcpSession,
@@ -397,10 +424,10 @@ export class GatePipeline {
     if (tool === "params.set" && isFlightCriticalParam(args.name)) {
       return { scope: "flight", capability: "mavlink.write", safetyClass: "flight" };
     }
-    if (tool === "config.set" && isNetworkConfigPath(args.path)) {
+    if (tool === "config.set" && isNetworkConfigPath(args.key)) {
       return { scope: "admin", capability: "network.outbound", safetyClass: "admin" };
     }
-    if (tool === "services.restart" && ARMED_CRITICAL_UNITS.has(String(args.name))) {
+    if (tool === "services.restart" && ARMED_CRITICAL_UNITS.has(canonicalUnit(args.name))) {
       return { scope: "flight", capability: "vehicle.command", safetyClass: "flight" };
     }
     return { scope: entry.scope, capability: entry.capability, safetyClass: entry.safetyClass };
@@ -418,7 +445,10 @@ export class GatePipeline {
     mcpSession: string,
     resultHadSecret = false,
   ): Promise<void> {
-    const { args: redacted, redacted: argsTouched } = redactArgs(args, allowSecrets);
+    const { args: redacted, redacted: argsTouched } = redactArgs(
+      semanticWriteArgs(tool, args),
+      allowSecrets,
+    );
     // A secret was disclosed to the client when the token allowed it AND either
     // an argument or the returned result carried one.
     const disclosedSecret = allowSecrets && (argsTouched || resultHadSecret);

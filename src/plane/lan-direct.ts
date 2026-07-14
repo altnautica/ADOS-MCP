@@ -7,6 +7,7 @@
 import { GateError } from "../gate/errors.js";
 import { logger } from "../util/logger.js";
 import type {
+  CommandOutcome,
   FirmwareHint,
   NodeRef,
   NodeStatus,
@@ -199,9 +200,92 @@ export class LanDirectPlane implements PlatformPlane {
     ];
   }
 
+  // --- Admin / ecosystem writes over the agent REST (drone-direct) ---
+
+  async restartService(_node: NodeRef, unit: string): Promise<CommandOutcome> {
+    return toOutcome(await this.post(`/api/services/${encodeURIComponent(unit)}/restart`));
+  }
+
+  async restartSupervisor(_node: NodeRef): Promise<CommandOutcome> {
+    return toOutcome(await this.post(`/api/v1/system/restart-supervisor`));
+  }
+
+  async setParam(_node: NodeRef, name: string, value: number): Promise<CommandOutcome> {
+    return toOutcome(await this.post(`/api/params/${encodeURIComponent(name)}`, { value }));
+  }
+
+  async setConfig(_node: NodeRef, key: string, value: string): Promise<CommandOutcome> {
+    return toOutcome(await this.put(`/api/config`, { key, value }));
+  }
+
+  async pluginInstall(_node: NodeRef, url: string, sha256?: string): Promise<CommandOutcome> {
+    return toOutcome(
+      await this.post(`/api/plugins/install_from_url`, {
+        url,
+        ...(sha256 ? { expected_sha256: sha256 } : {}),
+      }),
+    );
+  }
+
+  async pluginEnable(_node: NodeRef, id: string): Promise<CommandOutcome> {
+    return toOutcome(await this.post(`/api/plugins/${encodeURIComponent(id)}/enable`));
+  }
+
+  async pluginDisable(_node: NodeRef, id: string): Promise<CommandOutcome> {
+    return toOutcome(await this.post(`/api/plugins/${encodeURIComponent(id)}/disable`));
+  }
+
+  async pluginRemove(_node: NodeRef, id: string, keepData?: boolean): Promise<CommandOutcome> {
+    const q = keepData ? "?keep_data=1" : "";
+    return toOutcome(await this.del(`/api/plugins/${encodeURIComponent(id)}${q}`));
+  }
+
+  async pluginConfig(
+    _node: NodeRef,
+    id: string,
+    key: string,
+    value: unknown,
+    scope?: string,
+  ): Promise<CommandOutcome> {
+    return toOutcome(
+      await this.put(`/api/plugins/${encodeURIComponent(id)}/config`, {
+        key,
+        value,
+        ...(scope ? { scope } : {}),
+      }),
+    );
+  }
+
+  getPlugins(_node: NodeRef): Promise<unknown> {
+    return this.get("/api/plugins");
+  }
+
+  getPluginInfo(_node: NodeRef, id: string): Promise<unknown> {
+    return this.get(`/api/plugins/${encodeURIComponent(id)}`);
+  }
+
+  queryLogs(_node: NodeRef, opts?: { level?: string; limit?: number }): Promise<unknown> {
+    const params = new URLSearchParams();
+    if (opts?.level) params.set("level", opts.level);
+    params.set("limit", String(opts?.limit ?? 200));
+    return this.get(`/api/logs?${params.toString()}`);
+  }
+
   /** Perform an authenticated GET against the agent REST, mapping failures. */
   protected async get<T = unknown>(path: string, timeoutMs?: number): Promise<T> {
     return this.request<T>("GET", path, undefined, timeoutMs);
+  }
+
+  protected post<T = unknown>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>("POST", path, body);
+  }
+
+  protected put<T = unknown>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>("PUT", path, body);
+  }
+
+  protected del<T = unknown>(path: string): Promise<T> {
+    return this.request<T>("DELETE", path);
   }
 
   protected async request<T = unknown>(
@@ -250,6 +334,16 @@ export class LanDirectPlane implements PlatformPlane {
       clearTimeout(timer);
     }
   }
+}
+
+/** Wrap a successful REST write response as a completed CommandOutcome. A failed
+ * request throws a GateError before this is reached, so arriving here means 2xx. */
+export function toOutcome(data: unknown): CommandOutcome {
+  const message =
+    data && typeof data === "object" && typeof (data as Record<string, unknown>).message === "string"
+      ? ((data as Record<string, unknown>).message as string)
+      : undefined;
+  return { ok: true, status: "completed", ...(message ? { message } : {}), ...(data !== undefined && data !== null ? { data } : {}) };
 }
 
 /** Pull a battery-remaining percent out of a status document, or null. */

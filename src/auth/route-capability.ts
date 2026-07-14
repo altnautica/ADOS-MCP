@@ -84,7 +84,11 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
   // admin.* / platform.*
   R("admin.node.rename", "admin", "process.spawn"),
   R("admin.agent.update", "admin", "process.spawn"),
-  R("admin.agent.restart_supervisor", "admin", "process.spawn"),
+  // Restarting the supervisor cycles the whole service tree, including the
+  // armed-critical MAVLink router and video units, so it carries the same flight
+  // gate that services.restart escalates those units to (never a plain admin
+  // confirm-only path to a more-destructive action).
+  R("admin.agent.restart_supervisor", "flight", "process.spawn", { affectsFlight: true }),
   R("admin.pairing.info", "read", "telemetry.read"),
   R("admin.pairing.generate_code", "admin", "config.set.network"),
   R("admin.pairing.claim", "admin", "config.set.network"),
@@ -101,7 +105,6 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
   R("plugins.disable", "admin", "process.spawn"),
   R("plugins.remove", "admin", "process.spawn"),
   R("plugins.config", "safe_write", "config.set"),
-  R("plugins.logs", "read", "telemetry.read"),
   // flight.* (gated, off by default)
   R("flight.arm", "flight", "vehicle.command", { affectsFlight: true }),
   R("flight.disarm", "flight", "vehicle.command", { affectsFlight: true }),

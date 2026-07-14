@@ -4,6 +4,7 @@ import {
   firmwareOf,
   normalizeParams,
   readBatteryPct,
+  toOutcome,
   vehicleClassOf,
 } from "../../src/plane/lan-direct.js";
 
@@ -51,8 +52,25 @@ describe("lan-direct helpers", () => {
   });
 
   it("builds the agent base url", () => {
-    expect(agentBaseUrl("skynodepi")).toBe("http://skynodepi:8080");
-    expect(agentBaseUrl("http://1.2.3.4:9090")).toBe("http://1.2.3.4:9090");
-    expect(agentBaseUrl("1.2.3.4:8080")).toBe("http://1.2.3.4:8080");
+    expect(agentBaseUrl("dronehost")).toBe("http://dronehost:8080");
+    expect(agentBaseUrl("http://10.0.0.4:9090")).toBe("http://10.0.0.4:9090");
+    expect(agentBaseUrl("10.0.0.4:8080")).toBe("http://10.0.0.4:8080");
+  });
+
+  it("wraps a REST write response as a completed outcome", () => {
+    expect(toOutcome({ status: "ok", message: "restarted" })).toEqual({
+      ok: true,
+      status: "completed",
+      message: "restarted",
+      data: { status: "ok", message: "restarted" },
+    });
+    // no message field -> just ok + data
+    expect(toOutcome({ name: "P", value: 1 })).toEqual({
+      ok: true,
+      status: "completed",
+      data: { name: "P", value: 1 },
+    });
+    // null body -> ok with no data
+    expect(toOutcome(null)).toEqual({ ok: true, status: "completed" });
   });
 });

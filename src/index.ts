@@ -12,6 +12,7 @@ import { advertiseMdns, type MdnsHandle } from "./discovery/mdns.js";
 import { FileAuditSink } from "./audit/file-sink.js";
 import { registerReadTools } from "./registry/read-tools.js";
 import { registerReadResources } from "./registry/read-resources.js";
+import { registerAdminTools } from "./registry/admin-tools.js";
 import { SERVER_VERSION } from "./version.js";
 import { logger } from "./util/logger.js";
 import type http from "node:http";
@@ -34,6 +35,7 @@ async function main(): Promise<void> {
   const core = new ServerCore(config, { extraAuditSinks: [new FileAuditSink(config.auditPath)] });
   registerReadTools(core.tools, config.auditPath);
   registerReadResources(core.resources);
+  registerAdminTools(core.tools);
   const info = core.info();
   logger.info("ados-mcp starting", {
     version: info.version,

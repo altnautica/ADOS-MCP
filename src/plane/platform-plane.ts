@@ -36,6 +36,20 @@ export interface ParamEntry {
   type?: string;
 }
 
+/**
+ * The outcome of a write/command. In fleet-mode it is the terminal state of the
+ * async relay round-trip (enqueue then poll the ack); in agent-mode it is the
+ * direct REST response. `ok` is true only on a successful completion.
+ */
+export interface CommandOutcome {
+  ok: boolean;
+  status: "completed" | "failed" | "queued" | "timeout";
+  message?: string;
+  data?: unknown;
+  /** The relay command id, in fleet-mode, for correlation. */
+  commandId?: string;
+}
+
 /** A firmware hint so the reader can pick the right parameter-metadata snapshot. */
 export interface FirmwareHint {
   /** ardupilot | px4 | betaflight | inav | unknown. */
@@ -105,4 +119,45 @@ export interface PlatformPlane {
 
   /** List the nodes this plane reaches (one in agent-mode; the fleet otherwise). */
   listNodes(): Promise<NodeSummary[]>;
+
+  // --- Admin / ecosystem writes (P2). A plane that cannot serve one over its
+  // reach throws a typed not_supported naming the reach that can. ---
+
+  /** Restart one supervised service by unit name. */
+  restartService(node: NodeRef, unit: string): Promise<CommandOutcome>;
+
+  /** Restart the whole agent supervisor (and its service tree). */
+  restartSupervisor(node: NodeRef): Promise<CommandOutcome>;
+
+  /** Set one flight-controller parameter to a numeric value. */
+  setParam(node: NodeRef, name: string, value: number): Promise<CommandOutcome>;
+
+  /** Set one agent configuration value by dotted key. */
+  setConfig(node: NodeRef, key: string, value: string): Promise<CommandOutcome>;
+
+  /** Install a plugin from a signed archive url with a sha256 pin. */
+  pluginInstall(node: NodeRef, url: string, sha256?: string): Promise<CommandOutcome>;
+
+  /** Enable an installed plugin by id. */
+  pluginEnable(node: NodeRef, id: string): Promise<CommandOutcome>;
+
+  /** Disable an installed plugin by id. */
+  pluginDisable(node: NodeRef, id: string): Promise<CommandOutcome>;
+
+  /** Remove an installed plugin by id (optionally keeping its data). */
+  pluginRemove(node: NodeRef, id: string, keepData?: boolean): Promise<CommandOutcome>;
+
+  /** Set one plugin config value (scope drone|global). */
+  pluginConfig(node: NodeRef, id: string, key: string, value: unknown, scope?: string): Promise<CommandOutcome>;
+
+  // --- Reads the read plane deferred to the admin plane ---
+
+  /** List installed plugins. */
+  getPlugins(node: NodeRef): Promise<unknown>;
+
+  /** Read one installed plugin's detail. */
+  getPluginInfo(node: NodeRef, id: string): Promise<unknown>;
+
+  /** Query agent logs (optional level filter, bounded count). */
+  queryLogs(node: NodeRef, opts?: { level?: string; limit?: number }): Promise<unknown>;
 }

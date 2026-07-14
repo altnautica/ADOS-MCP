@@ -27,6 +27,7 @@ import { makeFunctionReference } from "convex/server";
 import { GateError } from "../gate/errors.js";
 import { logger } from "../util/logger.js";
 import type {
+  CommandOutcome,
   FirmwareHint,
   NodeRef,
   NodeStatus,
@@ -66,10 +67,22 @@ const JWT_TTL_MS = 50 * 60_000;
 // cadence, and the verifier accepts current-or-previous, so a short cache is safe).
 const OPERATOR_SECRET_TTL_MS = 60_000;
 
+// Poll the command queue this often, up to this deadline, for the agent's ack.
+const RELAY_POLL_MS = 700;
+const RELAY_ACK_TIMEOUT_MS = 25_000;
+
 const SIGN_IN = makeFunctionReference<"action">("auth:signIn");
 const GET_CLOUD_STATUS = makeFunctionReference<"query">("cmdDroneStatus:getCloudStatus");
 const LIST_MY_CLOUD_STATUSES = makeFunctionReference<"query">("cmdDroneStatus:listMyCloudStatuses");
 const GET_MY_SECRET = makeFunctionReference<"query">("operatorHmacSecrets:getMyCurrent");
+const ENQUEUE_COMMAND = makeFunctionReference<"mutation">("cmdDroneCommands:enqueueCommand");
+const GET_COMMAND_STATUS = makeFunctionReference<"query">("cmdDroneCommands:getCommandStatus");
+
+interface RelayRow {
+  status?: string;
+  result?: { success?: boolean; message?: string };
+  data?: unknown;
+}
 
 interface StatusRow {
   drone?: Record<string, unknown>;
@@ -208,6 +221,119 @@ export class GcsPlane implements PlatformPlane {
     });
   }
 
+  // --- Admin / ecosystem writes over the relay (enqueue then poll the ack) ---
+
+  restartService(node: NodeRef, unit: string): Promise<CommandOutcome> {
+    if (!unit) return Promise.reject(new GateError("invalid_arguments", "service unit name is required"));
+    return this.runRelayCommand(node, "restart_service", { name: unit });
+  }
+
+  pluginEnable(node: NodeRef, id: string): Promise<CommandOutcome> {
+    return this.runRelayCommand(node, "plugin.enable", { pluginId: id });
+  }
+
+  pluginDisable(node: NodeRef, id: string): Promise<CommandOutcome> {
+    return this.runRelayCommand(node, "plugin.disable", { pluginId: id });
+  }
+
+  pluginRemove(node: NodeRef, id: string, keepData?: boolean): Promise<CommandOutcome> {
+    // The relay uninstall cannot preserve plugin data, so a keep-data removal is
+    // refused (naming the direct reach) rather than silently destroying it.
+    if (keepData) return Promise.reject(this.relayWriteUnsupported("a keep-data plugin removal"));
+    return this.runRelayCommand(node, "plugin.uninstall", { pluginId: id });
+  }
+
+  async queryLogs(node: NodeRef, opts?: { level?: string; limit?: number }): Promise<unknown> {
+    const outcome = await this.runRelayCommand(node, "get_logs", {
+      ...(opts?.level ? { level: opts.level } : {}),
+      limit: opts?.limit ?? 200,
+    });
+    if (!outcome.ok) {
+      throw new GateError("rest_down", outcome.message ?? "get_logs did not complete on the drone");
+    }
+    return outcome.data ?? { entries: [] };
+  }
+
+  // The relay vocabulary carries no synchronous parameter/config write, no
+  // supervisor restart, no plugin install (the console installs over direct HTTP)
+  // and no plugin-config value set, so these name the direct reach honestly.
+  restartSupervisor(_node: NodeRef): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("restarting the supervisor"));
+  }
+
+  setParam(_node: NodeRef, _name: string, _value: number): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("setting a flight-controller parameter"));
+  }
+
+  setConfig(_node: NodeRef, _key: string, _value: string): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("setting an agent configuration value"));
+  }
+
+  pluginInstall(_node: NodeRef, _url: string, _sha256?: string): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("installing a plugin"));
+  }
+
+  pluginConfig(
+    _node: NodeRef,
+    _id: string,
+    _key: string,
+    _value: unknown,
+    _scope?: string,
+  ): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("setting a plugin configuration value"));
+  }
+
+  getPlugins(_node: NodeRef): Promise<unknown> {
+    return Promise.reject(this.relayReadUnsupported("the installed plugin list"));
+  }
+
+  getPluginInfo(_node: NodeRef, _id: string): Promise<unknown> {
+    return Promise.reject(this.relayReadUnsupported("a plugin's detail"));
+  }
+
+  /** Enqueue a relay command and poll the ack to a terminal outcome. */
+  private async runRelayCommand(
+    node: NodeRef,
+    command: string,
+    args: Record<string, unknown>,
+  ): Promise<CommandOutcome> {
+    await this.ensureAuth();
+    const enq = await this.mutation<{ commandId: string }>(ENQUEUE_COMMAND, {
+      deviceId: node,
+      command,
+      args,
+    });
+    const commandId = enq.commandId;
+    const deadline = Date.now() + RELAY_ACK_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await delay(RELAY_POLL_MS);
+      const row = await this.query<RelayRow | null>(GET_COMMAND_STATUS, { commandId });
+      if (row && (row.status === "completed" || row.status === "failed")) {
+        const ok = row.status === "completed" && row.result?.success !== false;
+        return {
+          ok,
+          status: row.status,
+          ...(row.result?.message ? { message: row.result.message } : {}),
+          ...(row.data !== undefined ? { data: row.data } : {}),
+          commandId,
+        };
+      }
+    }
+    return {
+      ok: false,
+      status: "timeout",
+      message: "no ack within the timeout window; the drone may be offline",
+      commandId,
+    };
+  }
+
+  private relayWriteUnsupported(what: string): GateError {
+    return new GateError(
+      "not_supported",
+      `${what} is not available over the GCS relay; reach the drone directly with --target agent <host>`,
+    );
+  }
+
   /**
    * Fetch the operator HMAC secret used to verify `cloud:` MCP tokens. The read
    * plane wires this into the token resolver so the AI client's cloud token is
@@ -299,6 +425,20 @@ export class GcsPlane implements PlatformPlane {
     const timeoutMs = this.config.timeoutMs ?? 10_000;
     return (await withTimeout(this.client.query(ref, args) as Promise<T>, timeoutMs, "GCS query")) as T;
   }
+
+  private async mutation<T = unknown>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ref: any,
+    args: Record<string, unknown>,
+  ): Promise<T> {
+    if (!this.client) throw new GateError("not_supported", "GCS backend not configured");
+    const timeoutMs = this.config.timeoutMs ?? 10_000;
+    return (await withTimeout(this.client.mutation(ref, args) as Promise<T>, timeoutMs, "GCS mutation")) as T;
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Project a subset of keys that are present on a document. */
