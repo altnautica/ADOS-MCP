@@ -9,8 +9,11 @@ import type { ScopeGroup } from "../src/auth/scopes.js";
 import type { AuditEvent } from "../src/audit/event.js";
 import type { AuditSink } from "../src/audit/sink.js";
 import type {
+  FirmwareHint,
   NodeRef,
   NodeStatus,
+  NodeSummary,
+  ParamEntry,
   PlaneHealth,
   PlaneMode,
   PlatformPlane,
@@ -31,6 +34,39 @@ export class FakePlane implements PlatformPlane {
   }
   async getStatus(_node: NodeRef): Promise<NodeStatus> {
     return this.status;
+  }
+  async getStatusFull(_node: NodeRef): Promise<NodeStatus> {
+    return this.status;
+  }
+  async getSystem(_node: NodeRef): Promise<NodeStatus> {
+    return { cpu: 12, memory: 40, disk: 30, temperature: 45 };
+  }
+  async getTelemetry(_node: NodeRef): Promise<NodeStatus> {
+    return { battery: { remaining: 78 }, mode: "GUIDED", armed: false };
+  }
+  async getVision(_node: NodeRef): Promise<NodeStatus> {
+    return { vision: { model: "none" } };
+  }
+  async getServices(_node: NodeRef): Promise<NodeStatus> {
+    return { services: [{ unit: "ados-supervisor", state: "running" }] };
+  }
+  async getParams(_node: NodeRef): Promise<ParamEntry[]> {
+    return [
+      { name: "ATC_RAT_RLL_P", value: 0.135 },
+      { name: "FENCE_ENABLE", value: 1 },
+    ];
+  }
+  async getParam(_node: NodeRef, name: string): Promise<ParamEntry | null> {
+    return name === "FENCE_ENABLE" ? { name, value: 1 } : null;
+  }
+  async getConfig(_node: NodeRef): Promise<NodeStatus> {
+    return { profile: "drone", api_key: "s3cr3t" };
+  }
+  async firmwareHint(_node: NodeRef): Promise<FirmwareHint> {
+    return { firmware: "ardupilot", vehicleClass: "copter" };
+  }
+  async listNodes(): Promise<NodeSummary[]> {
+    return [{ deviceId: "fake-node", online: true, battery: 78 }];
   }
 }
 
@@ -54,6 +90,7 @@ export function baseConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
     agentHost: "127.0.0.1",
     fleetEndpoint: "https://mcp.example/mcp",
     localDevSecret: TEST_SECRET,
+    auditPath: "/tmp/ados-mcp-test-audit.ndjson",
     transports: new Set(["http"]),
     httpPort: 0,
     unixSocketPath: "/tmp/ados-mcp-test.sock",

@@ -9,6 +9,9 @@ import { ServerCore } from "./server.js";
 import { startStdio } from "./transport/stdio.js";
 import { startHttpServer, startUnixServer } from "./transport/http.js";
 import { advertiseMdns, type MdnsHandle } from "./discovery/mdns.js";
+import { FileAuditSink } from "./audit/file-sink.js";
+import { registerReadTools } from "./registry/read-tools.js";
+import { registerReadResources } from "./registry/read-resources.js";
 import { SERVER_VERSION } from "./version.js";
 import { logger } from "./util/logger.js";
 import type http from "node:http";
@@ -26,7 +29,11 @@ async function main(): Promise<void> {
   }
 
   const config = resolveConfig(args);
-  const core = new ServerCore(config);
+  // The durable audit store is a local file on the operator's machine, fanned in
+  // alongside the always-available stderr sink.
+  const core = new ServerCore(config, { extraAuditSinks: [new FileAuditSink(config.auditPath)] });
+  registerReadTools(core.tools, config.auditPath);
+  registerReadResources(core.resources);
   const info = core.info();
   logger.info("ados-mcp starting", {
     version: info.version,

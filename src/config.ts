@@ -4,6 +4,8 @@
 // pairing key at request time, the local dev secret comes from the environment.
 
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { CliArgs } from "./cli.js";
 import { fromBase64Url, utf8 } from "./util/base64.js";
 import { logger } from "./util/logger.js";
@@ -11,6 +13,24 @@ import type { PlaneMode } from "./plane/platform-plane.js";
 
 export const DEFAULT_HTTP_PORT = 8091;
 export const DEFAULT_FLEET_ENDPOINT = "https://mcp.altnautica.com/mcp";
+
+// The Convex backend URLs the --gcs convenience resolves to. `local` targets a
+// self-hosted dev Convex; `prod` the production Mission Control backend.
+const GCS_LOCAL_CONVEX = "http://127.0.0.1:3210";
+const GCS_PROD_CONVEX = "https://convex.altnautica.com";
+
+/** Resolve the --gcs convenience (local|prod|<url>) to a Convex url. */
+export function resolveGcsUrl(gcs: string | undefined): string | undefined {
+  if (!gcs) return undefined;
+  if (gcs === "local") return GCS_LOCAL_CONVEX;
+  if (gcs === "prod") return GCS_PROD_CONVEX;
+  return gcs; // a literal Convex url
+}
+
+/** The default local audit file (the MCP server runs on the operator's machine). */
+export function defaultAuditPath(): string {
+  return process.env.ADOS_MCP_AUDIT_PATH ?? join(homedir(), ".ados", "mcp", "audit.ndjson");
+}
 
 function runDir(): string {
   return process.env.ADOS_RUN_DIR ?? "/run/ados";
@@ -36,14 +56,18 @@ export interface ServerConfig {
   agentApiKey?: string;
   pairingKey?: string;
   revocationSalt?: Uint8Array;
-  // fleet-mode
+  // fleet-mode (the GCS-interface pathway)
   convexUrl?: string;
+  /** The operator refresh token that authenticates the server to the GCS backend. */
+  refreshToken?: string;
   mqttUrl?: string;
   fleetEndpoint: string;
   // auth
   localDevSecret?: Uint8Array;
   revokedListPath?: string;
   launchToken?: string;
+  // audit (local file on the operator's machine)
+  auditPath: string;
   // transports
   transports: Set<"stdio" | "http" | "unix">;
   httpPort: number;
@@ -112,11 +136,13 @@ export function resolveConfig(args: CliArgs): ServerConfig {
     agentHost: args.host ?? process.env.ADOS_AGENT_HOST ?? "127.0.0.1",
     agentApiKey: pairing.apiKey ?? process.env.ADOS_MCP_AGENT_KEY,
     pairingKey: pairing.apiKey ?? process.env.ADOS_MCP_PAIRING_KEY,
-    convexUrl: args.convexUrl ?? process.env.ADOS_CONVEX_URL,
+    convexUrl: resolveGcsUrl(args.gcs) ?? args.convexUrl ?? process.env.ADOS_CONVEX_URL,
+    refreshToken: args.refreshToken ?? process.env.ADOS_GCS_REFRESH_TOKEN,
     mqttUrl: args.mqttUrl ?? process.env.ADOS_MQTT_URL,
     fleetEndpoint: args.fleetEndpoint ?? process.env.ADOS_MCP_FLEET_ENDPOINT ?? DEFAULT_FLEET_ENDPOINT,
     localDevSecret: resolveLocalDevSecret(),
     revokedListPath: revokedListPath(),
+    auditPath: args.auditPath ?? defaultAuditPath(),
     ...(launchToken ? { launchToken } : {}),
     transports,
     httpPort: args.httpPort ?? (Number(process.env.ADOS_MCP_HTTP_PORT) || DEFAULT_HTTP_PORT),

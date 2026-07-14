@@ -31,25 +31,30 @@ The drone is the server; the AI is the client. No model runs on the drone. The s
 
 ## Two ways to run it
 
+You run the server yourself, on your own machine, in one of two modes:
+
 | Mode | Command | Reaches |
 |------|---------|---------|
-| **Agent-mode** | `npx @altnautica/ados-mcp --target agent <host>` | one node on the LAN |
-| **Fleet-mode** | `--target fleet` (hosted) | the whole fleet through the cloud relay |
+| **Fleet-mode** | `--target fleet --gcs prod` | your Mission Control fleet (its cloud-connected drones) |
+| **Agent-mode** | `--target agent <host>` | one drone directly on the LAN |
 
-Both expose the same tools; only the reach differs. Agent-mode is local-first (no cloud round-trip) and is the shape a bench or field setup uses.
+Both expose the identical tools; only the reach differs.
+
+- **Fleet-mode is the primary pathway.** The server connects to a **Mission Control (GCS) backend** — your own local one (`--gcs local`) or the production one (`--gcs prod`) — as you, the operator, and reaches the drones that Mission Control manages. It is the AI-native interface to your fleet. (Reach limit: Mission Control tracks cloud-connected drones; a drone that is only on your LAN is reached in agent-mode.)
+- **Agent-mode is the local-first direct pathway.** The server points straight at one drone's agent on the LAN — no cloud round-trip — the shape a bench or field setup uses.
 
 ## Quick start (Claude Code)
 
-Mint a scoped token in the Mission Control MCP tab, then:
+Sign in and mint a scoped token in the Mission Control MCP tab, then run the server on your machine:
 
 ```bash
-# Local, over the LAN, pointed at one node:
-claude mcp add ados -- npx -y @altnautica/ados-mcp --target agent <host>
+# Your whole fleet, through Mission Control (production backend):
+export ADOS_GCS_REFRESH_TOKEN="paste-the-operator-token-from-the-tab"
+export ADOS_MCP_TOKEN="paste-the-scoped-mcp-token-from-the-tab"
+claude mcp add ados -- npx -y @altnautica/ados-mcp --target fleet --gcs prod
 
-# Hosted fleet, over Streamable HTTP:
-export ADOS_MCP_TOKEN="paste-the-token"
-claude mcp add --transport http ados https://mcp.altnautica.com/mcp \
-  --header "Authorization: Bearer $ADOS_MCP_TOKEN"
+# One drone, directly on the LAN:
+claude mcp add ados-lan -- npx -y @altnautica/ados-mcp --target agent <host>
 ```
 
 Then ask your client for fleet status. See [`docs/`](./docs) for the full connect recipes and the tool catalog.

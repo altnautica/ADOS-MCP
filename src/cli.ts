@@ -11,9 +11,15 @@ export interface CliArgs {
   transport: "auto" | "stdio" | "http" | "unix";
   httpPort?: number;
   nodeId?: string;
+  /** The GCS backend to reach (fleet-mode): local | prod | a Convex url. */
+  gcs?: string;
+  /** The operator refresh token that signs the server in to the GCS backend. */
+  refreshToken?: string;
   convexUrl?: string;
   mqttUrl?: string;
   fleetEndpoint?: string;
+  /** Override the local audit file path. */
+  auditPath?: string;
   sim: boolean;
   flightEnforced: boolean;
   mdns: boolean;
@@ -24,18 +30,21 @@ export interface CliArgs {
 const USAGE = `ados-mcp - Model Context Protocol server for the ADOS drone platform
 
 Usage:
-  ados-mcp --target agent <host> [options]     Connect to one node on the LAN
-  ados-mcp --target fleet [options]            Front the whole fleet (hosted)
+  ados-mcp --target fleet --gcs prod [options]   Interface with Mission Control (the GCS)
+  ados-mcp --target agent <host> [options]       Connect to one drone on the LAN
 
 Options:
   --target <agent|fleet>   Deployment mode (required)
+  --gcs <local|prod|url>   The GCS Convex backend to reach (fleet-mode)
+  --gcs-refresh-token <t>  Operator refresh token minted in the Mission Control MCP tab
   --token <token>          Bearer token for the launch principal (stdio agent-mode)
   --transport <mode>       auto | stdio | http | unix  (default: auto)
   --http-port <port>       Streamable HTTP port in agent-mode (default: 8091)
   --node-id <id>           This node's device id (agent-mode)
-  --convex-url <url>       Fleet Convex deployment url (fleet-mode)
-  --mqtt-url <url>         Fleet MQTT broker url (fleet-mode)
+  --convex-url <url>       Explicit Convex deployment url (fleet-mode; --gcs is the shortcut)
+  --mqtt-url <url>         MQTT broker url for live streams (fleet-mode)
   --fleet-endpoint <url>   Hosted endpoint name (fleet-mode)
+  --audit-path <file>      Local audit file (default: ~/.ados/mcp/audit.ndjson)
   --sim                    Target is running in simulation (SITL)
   --flight-enforced        The MAVLink proxy enforce flag is confirmed on
   --no-mdns                Disable mDNS advertisement (agent-mode)
@@ -44,6 +53,9 @@ Options:
 
 Environment:
   ADOS_MCP_TOKEN           Bearer token (alternative to --token)
+  ADOS_GCS_REFRESH_TOKEN   Operator refresh token (alternative to --gcs-refresh-token)
+  ADOS_CONVEX_URL          Convex url (alternative to --convex-url / --gcs)
+  ADOS_MCP_AUDIT_PATH      Local audit file (alternative to --audit-path)
   ADOS_MCP_LOG_LEVEL       debug | info | warn | error  (default: info)
 `;
 
@@ -57,6 +69,8 @@ export function parseCli(argv: string[]): CliArgs {
     allowPositionals: true,
     options: {
       target: { type: "string" },
+      gcs: { type: "string" },
+      "gcs-refresh-token": { type: "string" },
       token: { type: "string" },
       transport: { type: "string", default: "auto" },
       "http-port": { type: "string" },
@@ -64,6 +78,7 @@ export function parseCli(argv: string[]): CliArgs {
       "convex-url": { type: "string" },
       "mqtt-url": { type: "string" },
       "fleet-endpoint": { type: "string" },
+      "audit-path": { type: "string" },
       sim: { type: "boolean", default: false },
       "flight-enforced": { type: "boolean", default: false },
       "no-mdns": { type: "boolean", default: false },
@@ -97,9 +112,12 @@ export function parseCli(argv: string[]): CliArgs {
     transport: transport as CliArgs["transport"],
     httpPort: values["http-port"] ? Number(values["http-port"]) : undefined,
     nodeId: values["node-id"] as string | undefined,
+    gcs: values.gcs as string | undefined,
+    refreshToken: values["gcs-refresh-token"] as string | undefined,
     convexUrl: values["convex-url"] as string | undefined,
     mqttUrl: values["mqtt-url"] as string | undefined,
     fleetEndpoint: values["fleet-endpoint"] as string | undefined,
+    auditPath: values["audit-path"] as string | undefined,
     sim: Boolean(values.sim),
     flightEnforced: Boolean(values["flight-enforced"]),
     mdns: !values["no-mdns"],

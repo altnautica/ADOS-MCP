@@ -8,18 +8,26 @@ through MCP.
 ## One core, two modes
 
 A single TypeScript core runs in either of two modes, chosen at launch with
-`--target`:
+`--target`. The operator runs the server on their own machine in both.
 
-- **agent-mode** (`--target agent <host>`) reaches one node over the LAN: its
-  HTTP control surface, its local state and MAVLink sockets, and its MAVLink
-  WebSocket.
-- **fleet-mode** (`--target fleet`) reaches the whole fleet through the cloud
-  relay, and every tool takes a `node` argument.
+- **fleet-mode** (`--target fleet --gcs local|prod`) is the primary pathway. It
+  connects to a Mission Control (GCS) Convex backend — a local one or the
+  production one — as the operator, and reaches the operator's cloud-connected
+  drones through the same auth-gated functions Mission Control itself calls.
+  Every tool takes a `node` argument. Reach limit: only cloud-connected drones
+  are visible; a LAN-only drone is reached in agent-mode.
+- **agent-mode** (`--target agent <host>`) is the local-first direct pathway. It
+  reaches one drone over the LAN: its HTTP control surface, its local state and
+  MAVLink sockets, and its MAVLink WebSocket.
 
 Both modes expose the identical tool, resource, and prompt catalog. What differs
 is the adapter behind a `PlatformPlane` interface: a LAN-direct adapter for
-agent-mode, a cloud-relay adapter for fleet-mode. A tool is written once against
-the interface and runs on either.
+agent-mode, a GCS-interface adapter for fleet-mode. A tool is written once
+against the interface and runs on either.
+
+Because the server runs on the operator's machine, its durable audit store is a
+local newline-delimited JSON file the operator owns, alongside the always-on
+stderr sink.
 
 ## Transports
 

@@ -28,7 +28,7 @@ import { makeResolver, type SecretResolver } from "./auth/issuers.js";
 import { DenylistRevocation, NO_REVOCATION, type RevocationSource } from "./auth/revocation.js";
 import { StderrAuditSink, MultiAuditSink, type AuditSink } from "./audit/sink.js";
 import { LanDirectPlane } from "./plane/lan-direct.js";
-import { CloudRelayPlane } from "./plane/cloud-relay.js";
+import { GcsPlane } from "./plane/gcs-plane.js";
 import type { PlaneHealth, PlatformPlane } from "./plane/platform-plane.js";
 import type { ServerConfig } from "./config.js";
 import { MCP_SPEC_REVISION, SERVER_NAME, SERVER_VERSION } from "./version.js";
@@ -75,8 +75,9 @@ export class ServerCore {
             host: config.agentHost,
             ...(config.agentApiKey ? { apiKey: config.agentApiKey } : {}),
           })
-        : new CloudRelayPlane({
+        : new GcsPlane({
             ...(config.convexUrl ? { convexUrl: config.convexUrl } : {}),
+            ...(config.refreshToken ? { refreshToken: config.refreshToken } : {}),
             ...(config.mqttUrl ? { mqttUrl: config.mqttUrl } : {}),
             endpoint: config.fleetEndpoint,
           }));
@@ -112,6 +113,18 @@ export class ServerCore {
   }
 
   private buildResolver(): SecretResolver {
+    // In fleet-mode the AI client's `cloud:` token is verified against the
+    // operator's HMAC secret, fetched from the GCS backend by the bound plane
+    // (once it holds an operator session). The current and just-rotated previous
+    // secrets both verify, so a token minted right before a rotation still works.
+    const plane = this.plane;
+    const cloudBackend =
+      plane instanceof GcsPlane
+        ? async (): Promise<Uint8Array[] | null> => {
+            const s = await plane.getOperatorSecret();
+            return s.previous ? [s.current, s.previous] : [s.current];
+          }
+        : undefined;
     return makeResolver({
       ...(this.config.pairingKey
         ? {
@@ -121,8 +134,8 @@ export class ServerCore {
             },
           }
         : {}),
+      ...(cloudBackend ? { cloud: cloudBackend } : {}),
       ...(this.config.localDevSecret ? { local: this.config.localDevSecret } : {}),
-      // The cloud backend is wired with the fleet Convex client in the read plane.
     });
   }
 
@@ -277,12 +290,26 @@ export class ServerCore {
     });
 
     server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+      const auth = this.currentAuth();
+      const session = this.als.getStore()?.mcpSession ?? "stdio";
       const def = this.resources.match(req.params.uri);
       if (!def) {
         throw new McpError(ErrorCode.InvalidParams, `no such resource: ${req.params.uri}`);
       }
-      // The concrete read path (with auth + audit) is wired in the read plane.
-      throw new McpError(ErrorCode.InvalidRequest, "resource reads are wired in the read plane");
+      try {
+        const value = await this.pipeline.readResource(def, req.params.uri, auth, session);
+        return {
+          contents: [
+            {
+              uri: req.params.uri,
+              mimeType: def.mimeType,
+              text: typeof value === "string" ? value : JSON.stringify(value, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        throw toMcpError(err);
+      }
     });
 
     server.setRequestHandler(ListPromptsRequestSchema, async () => {

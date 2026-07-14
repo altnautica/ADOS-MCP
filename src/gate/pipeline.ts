@@ -25,10 +25,11 @@ import { sourceIpAllowed } from "../util/cidr.js";
 import { logger } from "../util/logger.js";
 import type { AuditSink } from "../audit/sink.js";
 import type { AuditDecision, AuditEvent, AuditPlane } from "../audit/event.js";
-import { redactArgs } from "../audit/event.js";
+import { redact, redactArgs } from "../audit/event.js";
 import type { ToolRegistry } from "../registry/tools.js";
 import type { PlatformPlane, PlaneMode } from "../plane/platform-plane.js";
-import type { PublicToolInfo, ToolCtx } from "../registry/types.js";
+import type { PublicToolInfo, ResourceDefinition, ToolCtx } from "../registry/types.js";
+import { parseAdosUri } from "../registry/read-resources.js";
 
 export interface AuthContext {
   claims: TokenClaims;
@@ -174,7 +175,10 @@ export class GatePipeline {
       const baseEntry = routeCapFor(name);
       if (!baseEntry) throw new GateError("no_route_capability", `no route cap for ${name}`);
 
-      node = this.resolveNode(args, auth);
+      // Fleet-wide tools (fleet enumeration, local audit) target no single node,
+      // so they skip the per-node targeting gate that would otherwise reject a
+      // node-less call in fleet-mode.
+      node = baseEntry.fleetWide ? this.fleetWideNode() : this.resolveNode(args, auth);
       const eff = this.escalate(baseEntry, name, args);
 
       // Scope check (authoritative). On-box is trusted past the scope gate.
@@ -241,9 +245,24 @@ export class GatePipeline {
 
       // The handler already ran; an audit-write failure here must not re-label a
       // completed call as denied nor tell the client it failed. Record best-effort
-      // and surface the write failure to the operator log.
+      // and surface the write failure to the operator log. The result is redacted
+      // (allowSecrets=false) before it is persisted, so a secret returned to a
+      // secret_read client is never written into the durable audit — the client
+      // still receives the cleartext result; only the audit record is redacted.
+      const { value: safeResult, redacted: resultHadSecret } = redact(value, false);
       try {
-        await this.writeAudit(auth, name, args, node, decision, summarize(value), started, allowSecrets, mcpSession);
+        await this.writeAudit(
+          auth,
+          name,
+          args,
+          node,
+          decision,
+          summarize(safeResult),
+          started,
+          allowSecrets,
+          mcpSession,
+          resultHadSecret,
+        );
       } catch (auditErr) {
         logger.warn("audit write failed after a successful call", {
           tool: name,
@@ -268,6 +287,76 @@ export class GatePipeline {
       ).catch(() => undefined);
       throw gerr;
     }
+  }
+
+  /** Read a resource through the read-scope gate, resolving+auditing like a call. */
+  async readResource(
+    def: ResourceDefinition,
+    uri: string,
+    auth: AuthContext,
+    mcpSession: string,
+  ): Promise<unknown> {
+    const started = Date.now();
+    const parsed = parseAdosUri(uri);
+    let node = this.deps.config.nodeId ?? "local";
+    const allowSecrets = auth.claims.scopes.includes("secret_read");
+    try {
+      if (!auth.onBox && !auth.claims.scopes.includes("read")) {
+        throw new GateError("scope_missing", `resource ${uri} requires the read scope`, {
+          required: "read",
+        });
+      }
+      node = this.resolveNode({ node: parsed?.node }, auth);
+      const rl = this.deps.rateLimiter.check(auth.claims.tokenId, "tool");
+      if (!rl.allowed) {
+        throw new GateError("rate_limited", `rate limit exceeded reading ${uri}`, {
+          retryAfterMs: rl.retryAfterMs,
+        });
+      }
+      const ctx: ToolCtx = {
+        plane: this.deps.plane,
+        planeMode: this.deps.config.planeMode,
+        node,
+        claims: auth.claims,
+        sim: this.deps.config.sim,
+        secretRead: allowSecrets,
+      };
+      const value = await def.read(uri, ctx);
+      const { value: safeResult, redacted: resultHadSecret } = redact(value, false);
+      await this.writeAudit(
+        auth,
+        `resource:${def.name}`,
+        { uri },
+        node,
+        "allowed",
+        summarize(safeResult),
+        started,
+        allowSecrets,
+        mcpSession,
+        resultHadSecret,
+      ).catch((e) => logger.warn("resource audit failed after a successful read", { uri, err: String(e) }));
+      return value;
+    } catch (err) {
+      const gerr = err instanceof GateError ? err : new GateError("not_supported", String(err));
+      await this.writeAudit(
+        auth,
+        `resource:${def.name}`,
+        { uri },
+        node,
+        "denied",
+        `${gerr.reason}: ${gerr.message}`,
+        started,
+        false,
+        mcpSession,
+      ).catch(() => undefined);
+      throw gerr;
+    }
+  }
+
+  /** The audit `node` for a fleet-wide tool: the self node in agent-mode, the
+   * whole fleet ("*") otherwise. */
+  private fleetWideNode(): string {
+    return this.deps.config.planeMode === "agent" ? (this.deps.config.nodeId ?? "local") : "*";
   }
 
   private resolveNode(args: Record<string, unknown>, auth: AuthContext): string {
@@ -327,8 +416,13 @@ export class GatePipeline {
     started: number,
     allowSecrets: boolean,
     mcpSession: string,
+    resultHadSecret = false,
   ): Promise<void> {
-    const { args: redacted, redacted: touched } = redactArgs(args, allowSecrets);
+    const { args: redacted, redacted: argsTouched } = redactArgs(args, allowSecrets);
+    // A secret was disclosed to the client when the token allowed it AND either
+    // an argument or the returned result carried one.
+    const disclosedSecret = allowSecrets && (argsTouched || resultHadSecret);
+    const anyRedaction = argsTouched || resultHadSecret;
     const event: AuditEvent = {
       tsUs: Date.now() * 1000,
       tokenId: auth.claims.tokenId,
@@ -341,8 +435,8 @@ export class GatePipeline {
       latencyMs: Date.now() - started,
       mcpSession,
       plane: auth.plane,
-      ...(allowSecrets && touched ? { sensitiveRead: true } : {}),
-      ...(touched ? { redacted: true } : {}),
+      ...(disclosedSecret ? { sensitiveRead: true } : {}),
+      ...(anyRedaction ? { redacted: true } : {}),
     };
     await this.deps.audit.record(event);
   }

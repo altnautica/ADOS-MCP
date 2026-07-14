@@ -26,6 +26,13 @@ export interface RouteCapEntry {
   /** True when the tool can escalate to a higher class from its arguments. */
   escalates?: boolean;
   /**
+   * True when the tool is fleet-wide / node-agnostic: it targets no single node
+   * (fleet.list_nodes enumerates the operator's fleet; audit.* reads the local
+   * audit). Such tools skip the per-node targeting gate, which in fleet-mode
+   * would otherwise reject them for having no `node` argument.
+   */
+  fleetWide?: boolean;
+  /**
    * True when the tool writes MAVLink / changes in-flight behavior, even if its
    * class is not `flight` (emergency_stop is `destructive`). Such tools are
    * hidden and refused until the MAVLink proxy enforce flag is confirmed on, and
@@ -121,17 +128,17 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
   R("files.list", "read", "telemetry.read"),
   R("files.read", "read", "telemetry.read", { secretPossible: true }),
   R("files.write", "admin", "process.spawn"),
-  // fleet.* (fleet-mode)
-  R("fleet.list_nodes", "read", "telemetry.read"),
-  R("fleet.search", "read", "telemetry.read"),
+  // fleet.* (fleet-mode; enumeration is node-agnostic, target takes a node)
+  R("fleet.list_nodes", "read", "telemetry.read", { fleetWide: true }),
+  R("fleet.search", "read", "telemetry.read", { fleetWide: true }),
   R("fleet.target", "read", "telemetry.read"),
   // logs.* (read)
   R("logs.query", "read", "telemetry.read"),
   R("logs.tail", "read", "telemetry.read"),
   R("logs.aggregate", "read", "telemetry.read"),
-  // audit.* (read)
-  R("audit.query", "read", "telemetry.read"),
-  R("audit.search", "read", "telemetry.read"),
+  // audit.* (read; the local MCP audit, node is a filter not a target)
+  R("audit.query", "read", "telemetry.read", { fleetWide: true }),
+  R("audit.search", "read", "telemetry.read", { fleetWide: true }),
   // system.* (destructive)
   R("system.reboot", "destructive", "system.reboot"),
   R("system.shutdown", "destructive", "system.shutdown"),

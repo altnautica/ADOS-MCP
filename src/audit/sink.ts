@@ -1,8 +1,8 @@
 // The audit sink interface and a stderr sink. Every tool call writes one event.
-// The durable sink (the platform logging store over its ingest socket) is added
-// where it belongs in the read plane; the stderr sink is the always-available
-// baseline so audit is never silently dropped even before the durable sink is
-// configured.
+// The durable sink is a local file on the operator's machine (the FileAuditSink,
+// added in the read plane); the stderr sink is the always-available baseline so
+// audit is never silently dropped. A write tool refuses when the DURABLE audit
+// cannot record, so the aggregate is healthy only when every sink is healthy.
 
 import { logger } from "../util/logger.js";
 import type { AuditEvent } from "./event.js";
@@ -41,7 +41,13 @@ export class StderrAuditSink implements AuditSink {
   }
 }
 
-/** Fan out to several sinks; healthy if any is healthy. */
+/**
+ * Fan out to every sink. The aggregate is healthy only when EVERY sink is
+ * healthy: the pipeline refuses a write whose audit cannot be durably recorded,
+ * so a down durable sink (a full disk) must flip the aggregate unhealthy even
+ * though the always-healthy stderr sink is still up. "Any healthy" would defeat
+ * that guarantee. An empty set is vacuously healthy.
+ */
 export class MultiAuditSink implements AuditSink {
   constructor(private readonly sinks: AuditSink[]) {}
 
@@ -50,7 +56,7 @@ export class MultiAuditSink implements AuditSink {
   }
 
   healthy(): boolean {
-    return this.sinks.some((s) => s.healthy());
+    return this.sinks.every((s) => s.healthy());
   }
 
   async close(): Promise<void> {

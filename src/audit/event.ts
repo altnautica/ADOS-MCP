@@ -1,6 +1,7 @@
 // The MCP audit event shape and its redaction. One tool call maps to one event.
-// The event lands in the platform's durable logging store as a `mcp.tool_call`
-// event (wired in the logd sink); the shape here is the producer-side model.
+// The durable sink is a local file the operator owns (the server runs on the
+// operator's machine); an agent-direct logging-store sink lands with the
+// drone-direct plane. The shape here is the producer-side model.
 
 export type AuditDecision = "allowed" | "denied" | "confirmed" | "operator_absent";
 export type AuditPlane = "lan_direct" | "cloud_relay" | "on_box";
@@ -70,15 +71,22 @@ export function redact(
 ): { value: unknown; redacted: boolean } {
   let touched = false;
   const walk = (v: unknown, keyIsSecretHint = false): unknown => {
-    if (Array.isArray(v)) return v.map((x) => walk(x));
+    // Propagate the secret hint into containers: a value under a secret-shaped
+    // key is secret whether it is a scalar, an array of scalars, or a nested
+    // object. Otherwise `{api_keys: ["a","b"]}` or `{cred: {token: "x"}}` would
+    // pass a secret through in cleartext.
+    if (Array.isArray(v)) return v.map((x) => walk(x, keyIsSecretHint));
     if (v && typeof v === "object") {
       const out: Record<string, unknown> = {};
       for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-        out[k] = walk(val, keyIsSecret(k));
+        out[k] = walk(val, keyIsSecretHint || keyIsSecret(k));
       }
       return out;
     }
-    if (keyIsSecretHint && typeof v === "string" && v.length > 0) {
+    // Redact a non-empty scalar leaf under a secret hint (string or number).
+    const isNonEmptyScalar =
+      (typeof v === "string" && v.length > 0) || (typeof v === "number" && Number.isFinite(v));
+    if (keyIsSecretHint && isNonEmptyScalar) {
       touched = true;
       return allowSecrets ? v : REDACTION_MARKER;
     }
