@@ -1,7 +1,7 @@
 {
   "version": "0.1.0",
   "mcpRevision": "2025-06-18",
-  "toolCount": 39,
+  "toolCount": 45,
   "tools": [
     {
       "name": "admin.agent.restart_supervisor",
@@ -120,6 +120,54 @@
       "scope": "read",
       "safetyClass": "read",
       "description": "List the nodes reachable through this connection, with a status summary."
+    },
+    {
+      "name": "flight.arm",
+      "group": "flight",
+      "scope": "flight",
+      "safetyClass": "flight",
+      "description": "Arm the vehicle. Requires the flight scope and an operator-present or signed confirm (or --sim).",
+      "affectsFlight": true
+    },
+    {
+      "name": "flight.disarm",
+      "group": "flight",
+      "scope": "flight",
+      "safetyClass": "flight",
+      "description": "Disarm the vehicle. Requires the flight scope and an operator-present or signed confirm (or --sim).",
+      "affectsFlight": true
+    },
+    {
+      "name": "flight.land",
+      "group": "flight",
+      "scope": "flight",
+      "safetyClass": "flight",
+      "description": "Command the vehicle to land. Requires the flight scope and an operator-present or signed confirm (or --sim).",
+      "affectsFlight": true
+    },
+    {
+      "name": "flight.mode",
+      "group": "flight",
+      "scope": "flight",
+      "safetyClass": "flight",
+      "description": "Set the flight mode by name (e.g. GUIDED, RTL, LOITER). Requires the flight scope + confirm/sim.",
+      "affectsFlight": true
+    },
+    {
+      "name": "flight.rtl",
+      "group": "flight",
+      "scope": "flight",
+      "safetyClass": "flight",
+      "description": "Return to launch. Requires the flight scope and an operator-present or signed confirm (or --sim).",
+      "affectsFlight": true
+    },
+    {
+      "name": "flight.takeoff",
+      "group": "flight",
+      "scope": "flight",
+      "safetyClass": "flight",
+      "description": "Takeoff to an altitude AGL in metres. Requires the flight scope + confirm/sim.",
+      "affectsFlight": true
     },
     {
       "name": "logs.query",

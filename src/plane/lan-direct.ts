@@ -314,6 +314,14 @@ export class LanDirectPlane implements PlatformPlane {
     return toOutcome(await this.del(`/api/v1/network/client`));
   }
 
+  async sendFlightCommand(_node: NodeRef, cmd: string, args: (number | string)[]): Promise<CommandOutcome> {
+    // Native ados-control POST /api/command {cmd,args}; X-ADOS-Key is sent by
+    // request(). A 503 (FC not connected) throws rest_down. The response carries
+    // the correlated COMMAND_ACK; the tool layer reads ack.accepted (a DENIED ack
+    // still returns HTTP 200), so this stays a plain toOutcome.
+    return toOutcome(await this.post(`/api/command`, { cmd, args }));
+  }
+
   /** Perform an authenticated GET against the agent REST, mapping failures. */
   protected async get<T = unknown>(path: string, timeoutMs?: number): Promise<T> {
     return this.request<T>("GET", path, undefined, timeoutMs);

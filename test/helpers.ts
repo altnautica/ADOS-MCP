@@ -142,6 +142,27 @@ export class FakePlane implements PlatformPlane {
   async leaveWifi(_n: NodeRef): Promise<CommandOutcome> {
     return { ok: true, status: "completed", data: { left: true } };
   }
+  lastFlight?: { cmd: string; args: (number | string)[] };
+  flightAckAccepted = true;
+  async sendFlightCommand(_n: NodeRef, cmd: string, args: (number | string)[]): Promise<CommandOutcome> {
+    this.lastFlight = { cmd, args };
+    const accepted = this.flightAckAccepted;
+    return {
+      ok: true,
+      status: "completed",
+      data: {
+        status: "ok",
+        cmd,
+        ack: {
+          observed: true,
+          result: accepted ? 0 : 4,
+          result_name: accepted ? "ACCEPTED" : "FAILED",
+          accepted,
+          ...(accepted ? {} : { statustext: "PreArm: compass not calibrated" }),
+        },
+      },
+    };
+  }
 }
 
 export class CapturingAuditSink implements AuditSink {

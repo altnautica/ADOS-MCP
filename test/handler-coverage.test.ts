@@ -13,24 +13,20 @@ import { describe, it, expect } from "vitest";
 import { ToolRegistry } from "../src/registry/tools.js";
 import { registerReadTools } from "../src/registry/read-tools.js";
 import { registerAdminTools } from "../src/registry/admin-tools.js";
+import { registerFlightTools } from "../src/registry/flight-tools.js";
 import { ROUTE_CAPABILITY_TABLE } from "../src/auth/route-capability.js";
 
 // Route rows reserved for a phase not yet built. Each MUST carry a reason so a
 // reviewer sees why it is unregistered rather than a silent orphan.
 const FORWARD_SEAMS: Record<string, string> = {
-  // P4 — flight/mission plane
-  "flight.arm": "P4 flight plane",
-  "flight.disarm": "P4 flight plane",
-  "flight.takeoff": "P4 flight plane",
-  "flight.land": "P4 flight plane",
-  "flight.rtl": "P4 flight plane",
-  "flight.mode": "P4 flight plane",
-  "flight.goto": "P4 flight plane",
-  "flight.emergency_stop": "P4 flight plane",
-  "mission.read": "P4 mission plane",
-  "mission.download": "P4 mission plane",
-  "mission.upload": "P4 mission plane",
-  "mission.clear": "P4 mission plane",
+  // flight verbs the agent's /api/command does NOT expose (kept until it does;
+  // arm/disarm/takeoff/land/rtl/mode ARE registered by registerFlightTools).
+  "flight.goto": "pending an agent guided-setpoint route (guided.rs sender is unwired)",
+  "flight.emergency_stop": "pending an agent flight-termination verb (/api/command has no DO_FLIGHTTERMINATION)",
+  "mission.read": "pending an agent mission bridge (no mission REST route; :8765 is raw MAVLink)",
+  "mission.download": "pending an agent mission bridge",
+  "mission.upload": "pending an agent mission bridge",
+  "mission.clear": "pending an agent mission bridge",
   // agent-update has no LAN/HTTP endpoint (`ados update` is CLI/on-box only)
   "admin.agent.update": "pending an agent OTA/update endpoint (update is CLI/on-box only)",
   // Later phases / deferred reads + writes
@@ -59,6 +55,7 @@ describe("handler coverage", () => {
   const reg = new ToolRegistry();
   registerReadTools(reg, "/tmp/ados-mcp-test-audit.ndjson");
   registerAdminTools(reg);
+  registerFlightTools(reg);
   const registered = new Set(reg.names());
 
   it("every route-capability row is registered or an explicit forward-seam", () => {

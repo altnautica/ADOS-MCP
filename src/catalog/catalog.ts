@@ -8,6 +8,7 @@
 import { ToolRegistry } from "../registry/tools.js";
 import { registerReadTools } from "../registry/read-tools.js";
 import { registerAdminTools } from "../registry/admin-tools.js";
+import { registerFlightTools } from "../registry/flight-tools.js";
 import { routeCapFor } from "../auth/route-capability.js";
 import { SERVER_VERSION, MCP_SPEC_REVISION } from "../version.js";
 import type { SafetyClass, ScopeGroup } from "../auth/scopes.js";
@@ -42,6 +43,7 @@ export function buildToolsCatalog(): ToolsCatalog {
   const reg = new ToolRegistry();
   registerReadTools(reg, "/dev/null");
   registerAdminTools(reg);
+  registerFlightTools(reg);
 
   const tools: CatalogTool[] = reg
     .all()

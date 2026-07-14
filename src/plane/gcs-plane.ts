@@ -297,6 +297,14 @@ export class GcsPlane implements PlatformPlane {
     return Promise.reject(this.relayWriteUnsupported("leaving a Wi-Fi network"));
   }
 
+  sendFlightCommand(node: NodeRef, cmd: string, args: (number | string)[]): Promise<CommandOutcome> {
+    // The relay's send_command carries { cmd, args } — the exact /api/command body.
+    // The Convex classifier (requiredScopeForCommand) reads args.cmd and requires
+    // the flight scope for a flight-shaped cmd, so a stolen non-flight credential
+    // is rejected at the queue boundary as well as by the MCP gate.
+    return this.runRelayCommand(node, "send_command", { cmd, args });
+  }
+
   private async cloudStatus(node: NodeRef): Promise<NodeStatus> {
     const row = await this.action<Record<string, unknown> | null>(GET_STATUS, {
       credential: this.requireCredential(),

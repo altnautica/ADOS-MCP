@@ -201,4 +201,17 @@ export interface PlatformPlane {
   joinWifi(node: NodeRef, ssid: string, passphrase?: string): Promise<CommandOutcome>;
   /** Leave the current management Wi-Fi. */
   leaveWifi(node: NodeRef): Promise<CommandOutcome>;
+
+  // --- Flight (P4, gated: flight scope + operator-present/signed-confirm/sim) ---
+
+  /**
+   * Send one high-level flight command to the FC and return the correlated
+   * outcome. `cmd` is one of arm|disarm|takeoff|land|rtl|mode; `args` is the
+   * agent `/api/command` arg list (takeoff: [altitude_m], mode: [mode_name],
+   * others: []). The outcome's `data` carries the FC COMMAND_ACK block
+   * ({observed,result,result_name,accepted,statustext?}) — a caller reads
+   * `ack.accepted`, never assumes the command was accepted just because it
+   * was delivered.
+   */
+  sendFlightCommand(node: NodeRef, cmd: string, args: (number | string)[]): Promise<CommandOutcome>;
 }
