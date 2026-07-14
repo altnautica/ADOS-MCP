@@ -10,6 +10,8 @@ import { startStdio } from "./transport/stdio.js";
 import { startHttpServer, startUnixServer } from "./transport/http.js";
 import { advertiseMdns, type MdnsHandle } from "./discovery/mdns.js";
 import { FileAuditSink } from "./audit/file-sink.js";
+import { ConvexAuditSink } from "./audit/convex-sink.js";
+import type { AuditSink } from "./audit/sink.js";
 import { registerReadTools } from "./registry/read-tools.js";
 import { registerReadResources } from "./registry/read-resources.js";
 import { registerAdminTools } from "./registry/admin-tools.js";
@@ -32,8 +34,16 @@ async function main(): Promise<void> {
 
   const config = resolveConfig(args);
   // The durable audit store is a local file on the operator's machine, fanned in
-  // alongside the always-available stderr sink.
-  const core = new ServerCore(config, { extraAuditSinks: [new FileAuditSink(config.auditPath)] });
+  // alongside the always-available stderr sink. In fleet-mode, a best-effort cloud
+  // mirror also pushes a lean copy to Mission Control so the MCP tab shows one
+  // cross-node history (it never blocks a tool call; the file remains authoritative).
+  const auditSinks: AuditSink[] = [new FileAuditSink(config.auditPath)];
+  if (config.mode === "fleet" && config.credential && config.convexUrl) {
+    auditSinks.push(
+      new ConvexAuditSink({ convexUrl: config.convexUrl, credential: config.credential }),
+    );
+  }
+  const core = new ServerCore(config, { extraAuditSinks: auditSinks });
   registerReadTools(core.tools, config.auditPath);
   registerReadResources(core.resources);
   registerAdminTools(core.tools);
