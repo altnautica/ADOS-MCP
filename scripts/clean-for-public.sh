@@ -59,21 +59,17 @@ excludes=(
 )
 
 found=0
-in_git=0
-if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git rev-parse HEAD >/dev/null 2>&1; then
-  in_git=1
-fi
-
+# Scan the whole WORKING TREE with plain grep (not `git grep`): it sees tracked,
+# staged, AND untracked files, and tolerates excluded dirs that do not exist —
+# `git grep --untracked` fatals on a missing exclude pathspec, which a swallowed
+# error can turn into a false pass. A fresh, not-yet-indexed file must never slip
+# past the sweep.
 for p in "${patterns[@]}"; do
-  if [ "$in_git" -eq 1 ]; then
-    hits=$(git grep -nEI -i -- "$p" "${excludes[@]}" 2>/dev/null || true)
-  else
-    hits=$(grep -rnEI -i \
-      --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage \
-      --exclude-dir=.git --exclude-dir=vendor --exclude-dir=.private \
-      --exclude=pnpm-lock.yaml --exclude=clean-for-public.sh \
-      -- "$p" . 2>/dev/null || true)
-  fi
+  hits=$(grep -rnEI -i \
+    --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage \
+    --exclude-dir=.git --exclude-dir=vendor --exclude-dir=.private \
+    --exclude=pnpm-lock.yaml --exclude=clean-for-public.sh \
+    -- "$p" . 2>/dev/null || true)
   if [ -n "$hits" ]; then
     echo "clean-for-public: forbidden pattern found:"
     echo "$hits"
