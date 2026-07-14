@@ -43,6 +43,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "clean-for-public": "bash scripts/clean-for-public.sh",
+    "catalog:export": "node --import tsx scripts/export-catalog.ts",
     "prepack": "pnpm build"
   },
   "publishConfig": {
