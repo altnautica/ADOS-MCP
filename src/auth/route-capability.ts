@@ -91,8 +91,8 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
   R("services.list", "read", "telemetry.read"),
   R("services.restart", "admin", "process.spawn", { escalates: true }),
   // admin.* / platform.*
-  R("admin.node.rename", "admin", "process.spawn"),
-  R("admin.agent.update", "admin", "process.spawn"),
+  R("admin.node.rename", "admin", "process.spawn", { agentModeOnly: true }),
+  R("admin.agent.update", "admin", "process.spawn", { agentModeOnly: true }),
   // Restarting the supervisor cycles the whole service tree, including the
   // armed-critical MAVLink router and video units, so it carries the same flight
   // gate that services.restart escalates those units to (never a plain admin
@@ -101,14 +101,14 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
     affectsFlight: true,
     agentModeOnly: true,
   }),
-  R("admin.pairing.info", "read", "telemetry.read"),
-  R("admin.pairing.generate_code", "admin", "config.set.network"),
-  R("admin.pairing.claim", "admin", "config.set.network"),
-  R("admin.pairing.unpair", "admin", "config.set.network"),
-  R("admin.wfb.channel", "admin", "network.outbound"),
-  R("admin.wfb.tx_power", "admin", "network.outbound"),
-  R("admin.network.wifi_join", "admin", "network.outbound"),
-  R("admin.network.wifi_leave", "admin", "network.outbound"),
+  R("admin.pairing.info", "read", "telemetry.read", { agentModeOnly: true }),
+  R("admin.pairing.generate_code", "admin", "config.set.network", { agentModeOnly: true }),
+  R("admin.pairing.claim", "admin", "config.set.network", { agentModeOnly: true }),
+  R("admin.pairing.unpair", "admin", "config.set.network", { agentModeOnly: true }),
+  R("admin.wfb.channel", "admin", "network.outbound", { agentModeOnly: true }),
+  R("admin.wfb.tx_power", "admin", "network.outbound", { agentModeOnly: true }),
+  R("admin.network.wifi_join", "admin", "network.outbound", { agentModeOnly: true }),
+  R("admin.network.wifi_leave", "admin", "network.outbound", { agentModeOnly: true }),
   // plugins.* — enable/disable/remove ride the relay; list/info (live plugin
   // state) and install/config are drone-direct-only.
   R("plugins.list", "read", "telemetry.read", { agentModeOnly: true }),

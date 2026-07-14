@@ -179,4 +179,26 @@ export interface PlatformPlane {
 
   /** Query agent logs (optional level filter, bounded count). */
   queryLogs(node: NodeRef, opts?: { level?: string; limit?: number }): Promise<unknown>;
+
+  // --- Node / platform administration (P2, drone-direct only) ---
+
+  /** Set the node's display name (the name shown in pairing + the fleet card).
+   * NOT the OS hostname — that is fixed at install time. */
+  renameNode(node: NodeRef, name: string): Promise<CommandOutcome>;
+  /** Read the node's pairing status + reach info. */
+  getPairingInfo(node: NodeRef): Promise<unknown>;
+  /** Mint a fresh local pair code (while unpaired). */
+  generatePairingCode(node: NodeRef): Promise<unknown>;
+  /** Claim an unpaired agent for an operator (LAN presence is the auth boundary). */
+  claimPairing(node: NodeRef, userId: string): Promise<CommandOutcome>;
+  /** Release the pairing (invalidates credentials derived from the pairing key). */
+  unpairAgent(node: NodeRef): Promise<CommandOutcome>;
+  /** Set the WFB radio channel. */
+  setWfbChannel(node: NodeRef, channel: number): Promise<CommandOutcome>;
+  /** Set WFB TX power (dBm; the agent clamps to its configured ceiling). */
+  setWfbTxPower(node: NodeRef, powerDbm: number): Promise<CommandOutcome>;
+  /** Join a management Wi-Fi network. */
+  joinWifi(node: NodeRef, ssid: string, passphrase?: string): Promise<CommandOutcome>;
+  /** Leave the current management Wi-Fi. */
+  leaveWifi(node: NodeRef): Promise<CommandOutcome>;
 }

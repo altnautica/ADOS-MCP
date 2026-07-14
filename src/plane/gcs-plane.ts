@@ -266,6 +266,37 @@ export class GcsPlane implements PlatformPlane {
     return Promise.reject(this.relayReadUnsupported("a plugin's detail"));
   }
 
+  // Node / platform administration is drone-direct only — none of these effects
+  // exist in the cloud-relay command vocabulary, so fleet-mode refuses them
+  // (they are also agentModeOnly, so a fleet client never sees them in tools/list).
+  renameNode(_node: NodeRef, _name: string): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("renaming the node"));
+  }
+  getPairingInfo(_node: NodeRef): Promise<unknown> {
+    return Promise.reject(this.relayReadUnsupported("pairing info"));
+  }
+  generatePairingCode(_node: NodeRef): Promise<unknown> {
+    return Promise.reject(this.relayReadUnsupported("a pairing code"));
+  }
+  claimPairing(_node: NodeRef, _userId: string): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("claiming a pairing"));
+  }
+  unpairAgent(_node: NodeRef): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("unpairing the agent"));
+  }
+  setWfbChannel(_node: NodeRef, _channel: number): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("setting the WFB channel"));
+  }
+  setWfbTxPower(_node: NodeRef, _powerDbm: number): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("setting the WFB TX power"));
+  }
+  joinWifi(_node: NodeRef, _ssid: string, _passphrase?: string): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("joining a Wi-Fi network"));
+  }
+  leaveWifi(_node: NodeRef): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("leaving a Wi-Fi network"));
+  }
+
   private async cloudStatus(node: NodeRef): Promise<NodeStatus> {
     const row = await this.action<Record<string, unknown> | null>(GET_STATUS, {
       credential: this.requireCredential(),

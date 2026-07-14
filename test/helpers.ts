@@ -115,6 +115,33 @@ export class FakePlane implements PlatformPlane {
   async queryLogs(_node: NodeRef): Promise<unknown> {
     return { entries: [{ seq: 1, message: "hello" }], total: 1 };
   }
+  async renameNode(_n: NodeRef, name: string): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { name } };
+  }
+  async getPairingInfo(_n: NodeRef): Promise<unknown> {
+    return { paired: false, name: "fake", mdns_host: "fake.local" };
+  }
+  async generatePairingCode(_n: NodeRef): Promise<unknown> {
+    return { code: "123-456" };
+  }
+  async claimPairing(_n: NodeRef, _userId: string): Promise<CommandOutcome> {
+    return { ok: true, status: "completed" };
+  }
+  async unpairAgent(_n: NodeRef): Promise<CommandOutcome> {
+    return { ok: true, status: "completed" };
+  }
+  async setWfbChannel(_n: NodeRef, channel: number): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { channel } };
+  }
+  async setWfbTxPower(_n: NodeRef, powerDbm: number): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { effective_dbm: powerDbm } };
+  }
+  async joinWifi(_n: NodeRef, ssid: string, _passphrase?: string): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { joined: true, ssid } };
+  }
+  async leaveWifi(_n: NodeRef): Promise<CommandOutcome> {
+    return { ok: true, status: "completed", data: { left: true } };
+  }
 }
 
 export class CapturingAuditSink implements AuditSink {

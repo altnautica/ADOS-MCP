@@ -278,6 +278,42 @@ export class LanDirectPlane implements PlatformPlane {
     return this.get(`/api/logs?${params.toString()}`);
   }
 
+  // --- Node / platform administration (agent-mode REST) ---
+  // The OS hostname is set only at install time, so "rename" sets the DISPLAY
+  // name (config key agent.name), which is what pairing + the fleet card show.
+  async renameNode(_node: NodeRef, name: string): Promise<CommandOutcome> {
+    return toOutcome(await this.put(`/api/config`, { key: "agent.name", value: name }));
+  }
+  getPairingInfo(_node: NodeRef): Promise<unknown> {
+    return this.get(`/api/pairing/info`);
+  }
+  generatePairingCode(_node: NodeRef): Promise<unknown> {
+    return this.get(`/api/pairing/code`);
+  }
+  async claimPairing(_node: NodeRef, userId: string): Promise<CommandOutcome> {
+    return toOutcome(await this.post(`/api/pairing/claim`, { user_id: userId }));
+  }
+  async unpairAgent(_node: NodeRef): Promise<CommandOutcome> {
+    return toOutcome(await this.post(`/api/pairing/unpair`));
+  }
+  async setWfbChannel(_node: NodeRef, channel: number): Promise<CommandOutcome> {
+    return toOutcome(await this.post(`/api/wfb/channel`, { channel }));
+  }
+  async setWfbTxPower(_node: NodeRef, powerDbm: number): Promise<CommandOutcome> {
+    return toOutcome(await this.put(`/api/wfb/tx-power`, { tx_power_dbm: powerDbm }));
+  }
+  async joinWifi(_node: NodeRef, ssid: string, passphrase?: string): Promise<CommandOutcome> {
+    return toOutcome(
+      await this.put(`/api/v1/network/client/join`, {
+        ssid,
+        ...(passphrase !== undefined ? { passphrase } : {}),
+      }),
+    );
+  }
+  async leaveWifi(_node: NodeRef): Promise<CommandOutcome> {
+    return toOutcome(await this.del(`/api/v1/network/client`));
+  }
+
   /** Perform an authenticated GET against the agent REST, mapping failures. */
   protected async get<T = unknown>(path: string, timeoutMs?: number): Promise<T> {
     return this.request<T>("GET", path, undefined, timeoutMs);

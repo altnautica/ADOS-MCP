@@ -151,6 +151,81 @@ export function registerAdminTools(reg: ToolRegistry): void {
           ...(typeof a.limit === "number" ? { limit: a.limit } : {}),
         }),
     },
+    // --- Node / platform administration (drone-direct only; agentModeOnly) ---
+    {
+      name: "admin.node.rename",
+      description: "Set the node's display name (shown in pairing and the fleet card). Not the OS hostname.",
+      inputSchema: z.object({ node: NODE, name: z.string(), confirm: CONFIRM, confirm_id: CONFIRM_ID }),
+      annotations: WRITE,
+      handler: (a, ctx) => ctx.plane.renameNode(ctx.node, String(a.name)),
+    },
+    {
+      name: "admin.pairing.info",
+      description: "Read the node's pairing status and reach info.",
+      inputSchema: z.object({ node: NODE }),
+      annotations: READ,
+      handler: (_a, ctx) => ctx.plane.getPairingInfo(ctx.node),
+    },
+    {
+      name: "admin.pairing.generate_code",
+      description: "Mint a fresh local pair code (while the node is unpaired).",
+      inputSchema: z.object({ node: NODE, confirm: CONFIRM, confirm_id: CONFIRM_ID }),
+      annotations: WRITE,
+      handler: (_a, ctx) => ctx.plane.generatePairingCode(ctx.node),
+    },
+    {
+      name: "admin.pairing.claim",
+      description: "Claim an unpaired node for an operator (LAN presence is the auth boundary).",
+      inputSchema: z.object({ node: NODE, user_id: z.string(), confirm: CONFIRM, confirm_id: CONFIRM_ID }),
+      annotations: WRITE,
+      handler: (a, ctx) => ctx.plane.claimPairing(ctx.node, String(a.user_id)),
+    },
+    {
+      name: "admin.pairing.unpair",
+      description: "Release the node's pairing (invalidates credentials derived from the pairing key).",
+      inputSchema: z.object({ node: NODE, confirm: CONFIRM, confirm_id: CONFIRM_ID }),
+      annotations: WRITE,
+      handler: (_a, ctx) => ctx.plane.unpairAgent(ctx.node),
+    },
+    {
+      name: "admin.wfb.channel",
+      description: "Set the WFB radio channel (agent validates against its allowed set).",
+      inputSchema: z.object({ node: NODE, channel: z.number().int(), confirm: CONFIRM, confirm_id: CONFIRM_ID }),
+      annotations: WRITE,
+      handler: (a, ctx) => ctx.plane.setWfbChannel(ctx.node, Number(a.channel)),
+    },
+    {
+      name: "admin.wfb.tx_power",
+      description: "Set WFB TX power in dBm (agent clamps to its configured ceiling).",
+      inputSchema: z.object({ node: NODE, power_dbm: z.number().int(), confirm: CONFIRM, confirm_id: CONFIRM_ID }),
+      annotations: WRITE,
+      handler: (a, ctx) => ctx.plane.setWfbTxPower(ctx.node, Number(a.power_dbm)),
+    },
+    {
+      name: "admin.network.wifi_join",
+      description: "Join a management Wi-Fi network.",
+      inputSchema: z.object({
+        node: NODE,
+        ssid: z.string(),
+        passphrase: z.string().optional(),
+        confirm: CONFIRM,
+        confirm_id: CONFIRM_ID,
+      }),
+      annotations: WRITE,
+      handler: (a, ctx) =>
+        ctx.plane.joinWifi(
+          ctx.node,
+          String(a.ssid),
+          typeof a.passphrase === "string" ? a.passphrase : undefined,
+        ),
+    },
+    {
+      name: "admin.network.wifi_leave",
+      description: "Leave the current management Wi-Fi network.",
+      inputSchema: z.object({ node: NODE, confirm: CONFIRM, confirm_id: CONFIRM_ID }),
+      annotations: WRITE,
+      handler: (_a, ctx) => ctx.plane.leaveWifi(ctx.node),
+    },
   ];
 
   for (const def of defs) reg.register(def);

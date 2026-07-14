@@ -20,6 +20,32 @@ function ok(r: { structuredContent?: unknown }): boolean {
   return (r.structuredContent as { ok?: boolean }).ok === true;
 }
 
+describe("admin platform tools (drone-direct)", () => {
+  it("sets the WFB channel in agent-mode with the admin scope", async () => {
+    const { core } = adminCore();
+    const a = await auth(core, ["read", "admin"]);
+    const r = await core.pipeline.callTool("admin.wfb.channel", { channel: 149, confirm: true }, a, "s");
+    expect(ok(r)).toBe(true);
+  });
+
+  it("reads pairing info with the read scope", async () => {
+    const { core } = adminCore();
+    const a = await auth(core, ["read"]);
+    const r = await core.pipeline.callTool("admin.pairing.info", {}, a, "s");
+    expect(r.structuredContent).toMatchObject({ paired: false });
+  });
+
+  it("hides the drone-direct platform tools from a fleet-mode tools/list", async () => {
+    const { core } = makeCore({ mode: "fleet", convexUrl: "https://convex.example", auditPath: AUDIT });
+    registerAdminTools(core.tools);
+    const a = await auth(core, ["read", "admin"]);
+    const names = core.pipeline.listTools(a).map((t) => t.name);
+    for (const hidden of ["admin.wfb.channel", "admin.network.wifi_join", "admin.pairing.unpair", "admin.node.rename"]) {
+      expect(names).not.toContain(hidden);
+    }
+  });
+});
+
 describe("admin plane", () => {
   it("restarts a non-critical service with confirm and audits it as confirmed", async () => {
     const { core, audit } = adminCore();

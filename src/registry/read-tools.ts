@@ -8,7 +8,7 @@
 import { z } from "zod";
 import type { ToolRegistry } from "./tools.js";
 import type { ToolCtx, ToolDefinition } from "./types.js";
-import type { FirmwareType, ParamMetadata, VehicleClass } from "../param-metadata/loader.js";
+import type { DecodedParam, FirmwareType, ParamMetadata, VehicleClass } from "../param-metadata/loader.js";
 import {
   decodeValue,
   joinParams,
@@ -35,6 +35,24 @@ async function metadataFor(ctx: ToolCtx, hint?: FirmwareHint): Promise<Map<strin
     firmware: h.firmware as FirmwareType,
     ...(h.vehicleClass ? { vehicleClass: h.vehicleClass as VehicleClass } : {}),
   });
+}
+
+/** A deterministic, metadata-grounded range check — never a fabricated tuning number. */
+function rangeObservation(p: DecodedParam): Array<Record<string, unknown>> {
+  const r = p.metadata?.range;
+  if (!r || typeof p.value !== "number") return [];
+  if (p.value < r.min || p.value > r.max) {
+    return [
+      {
+        name: p.name,
+        current: p.value,
+        ...(p.decoded ? { current_decoded: p.decoded } : {}),
+        observation: `value ${p.value} is outside the documented range [${r.min}, ${r.max}]`,
+        ...(p.metadata?.humanName ? { about: p.metadata.humanName } : {}),
+      },
+    ];
+  }
+  return [];
 }
 
 /** Register the P1 read tools. `auditPath` is the local audit file audit.query reads. */
@@ -241,6 +259,61 @@ export function registerReadTools(reg: ToolRegistry, auditPath: string): void {
           ...(typeof a.limit === "number" ? { limit: a.limit } : {}),
         });
         return { count: events.length, events };
+      },
+    },
+    {
+      name: "audit.search",
+      description:
+        "Full-text search over this MCP server's own local audit log (tool name, node, operator, and result summary), newest first.",
+      inputSchema: z.object({
+        query: z.string().describe("Case-insensitive substring to match across the event."),
+        decision: z.enum(["allowed", "denied", "confirmed", "operator_absent"]).optional(),
+        sinceMs: z.number().int().optional(),
+        limit: z.number().int().min(1).max(1000).optional(),
+      }),
+      annotations: READ,
+      handler: async (a) => {
+        const q = String(a.query).toLowerCase();
+        const scanned = await queryAuditFile(auditPath, {
+          ...(typeof a.decision === "string" ? { decision: a.decision } : {}),
+          ...(typeof a.sinceMs === "number" ? { sinceMs: a.sinceMs } : {}),
+          limit: 1000,
+        });
+        const match = (e: (typeof scanned)[number]): boolean =>
+          [e.tool, e.node, e.operatorId, e.result].some(
+            (s) => typeof s === "string" && s.toLowerCase().includes(q),
+          );
+        const limit = typeof a.limit === "number" ? a.limit : 200;
+        const events = scanned.filter(match).slice(0, limit);
+        return { count: events.length, events };
+      },
+    },
+    {
+      name: "params.optimize",
+      description:
+        "Read-only tuning advisory. Reads every FC parameter joined with firmware metadata and returns deterministic, metadata-grounded observations plus the joined data for the model to reason over. Writes nothing; applying a change is params.set.",
+      inputSchema: z.object({
+        node: NODE,
+        focus: z.string().optional().describe("A focus area hint, e.g. vibration, tuning, battery."),
+      }),
+      annotations: READ,
+      handler: async (a, ctx) => {
+        const hint = await ctx.plane.firmwareHint(ctx.node);
+        const [params, meta] = await Promise.all([ctx.plane.getParams(ctx.node), metadataFor(ctx, hint)]);
+        const valueMap = toValueMap(params);
+        const joined = joinParams(valueMap, meta);
+        const diff = paramsDifferingFromDefault(valueMap, meta);
+        const observations = joined.flatMap(rangeObservation);
+        return {
+          firmware: hint.firmware,
+          ...(hint.vehicleClass ? { vehicleClass: hint.vehicleClass } : {}),
+          ...(typeof a.focus === "string" ? { focus: a.focus } : {}),
+          total: joined.length,
+          differsFromDefault: diff.length,
+          observations,
+          params: joined,
+          note: "Advisory only. Applying a change is params.set (confirm-gated; flight-critical names carry the flight gate).",
+        };
       },
     },
   ];
