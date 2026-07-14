@@ -1,0 +1,79 @@
+{
+  "name": "@altnautica/ados-mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for the ADOS drone platform: read and control a drone or a fleet from an AI client, scoped, audited, and safety-gated.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "drone",
+    "mavlink",
+    "ados",
+    "ai"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ados-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "vendor/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.28.1",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "node --import tsx src/index.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "clean-for-public": "bash scripts/clean-for-public.sh",
+    "prepack": "pnpm build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/altnautica/ADOS-MCP.git"
+  },
+  "homepage": "https://github.com/altnautica/ADOS-MCP#readme",
+  "bugs": {
+    "url": "https://github.com/altnautica/ADOS-MCP/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "bonjour-service": "^1.4.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.7.0",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.64.0",
+    "vitest": "^4.1.10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
