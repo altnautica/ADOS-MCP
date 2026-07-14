@@ -66,7 +66,7 @@ export function parseCli(argv: string[]): CliArgs {
       "fleet-endpoint": { type: "string" },
       sim: { type: "boolean", default: false },
       "flight-enforced": { type: "boolean", default: false },
-      mdns: { type: "boolean", default: true },
+      "no-mdns": { type: "boolean", default: false },
       help: { type: "boolean", default: false },
       version: { type: "boolean", default: false },
     },
@@ -102,7 +102,7 @@ export function parseCli(argv: string[]): CliArgs {
     fleetEndpoint: values["fleet-endpoint"] as string | undefined,
     sim: Boolean(values.sim),
     flightEnforced: Boolean(values["flight-enforced"]),
-    mdns: values.mdns !== false,
+    mdns: !values["no-mdns"],
     help: Boolean(values.help),
     version: Boolean(values.version),
   };

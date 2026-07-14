@@ -1,6 +1,6 @@
-# Fleet-mode container. Coolify auto-deploys from this Dockerfile on push; the
-# service is fronted by a Cloudflare tunnel. Convex and MQTT targets are injected
-# as environment variables at runtime; no secret is baked into the image.
+# Fleet-mode container image. Build and run it behind your own reverse proxy.
+# The Convex and MQTT targets are injected as environment variables at runtime;
+# no secret is baked into the image.
 FROM node:22-alpine AS builder
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 WORKDIR /app

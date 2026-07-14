@@ -43,17 +43,53 @@ describe("SafetyGate", () => {
     ).toBe("confirmed");
   });
 
-  it("requires the exact typed phrase for destructive", () => {
+  it("requires the exact typed phrase for destructive (necessary, not sufficient)", () => {
     expect(() => gate.evaluate(ctx({ tool: "system.reboot", safetyClass: "destructive" }))).toThrow(
       /phrase/,
     );
     expect(() =>
       gate.evaluate(ctx({ tool: "system.reboot", safetyClass: "destructive", args: { confirm: "wrong" } })),
     ).toThrow(GateError);
+  });
+
+  it("requires a signed confirm in addition to the phrase for destructive", () => {
+    const phrase = DESTRUCTIVE_PHRASES["system.reboot"];
+    // The public phrase alone is not enough (a client can produce it).
+    try {
+      gate.evaluate(ctx({ tool: "system.reboot", safetyClass: "destructive", args: { confirm: phrase } }));
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect((e as GateError).reason).toBe("confirm_required");
+    }
+    // The phrase plus a valid operator signed confirm passes.
+    const oneShot = {
+      used: false,
+      consume() {
+        if (this.used) return false;
+        this.used = true;
+        return true;
+      },
+    };
     const ok = gate.evaluate(
-      ctx({ tool: "system.reboot", safetyClass: "destructive", args: { confirm: DESTRUCTIVE_PHRASES["system.reboot"] } }),
+      ctx({
+        tool: "system.reboot",
+        safetyClass: "destructive",
+        args: { confirm: phrase, confirm_id: "cid" },
+        signedConfirm: oneShot,
+      }),
     );
     expect(ok.decision).toBe("confirmed");
+  });
+
+  it("waives the signed confirm for destructive in sim, but still needs the phrase", () => {
+    const phrase = DESTRUCTIVE_PHRASES["system.reboot"];
+    expect(
+      gate.evaluate(ctx({ tool: "system.reboot", safetyClass: "destructive", sim: true, args: { confirm: phrase } }))
+        .decision,
+    ).toBe("confirmed");
+    expect(() =>
+      gate.evaluate(ctx({ tool: "system.reboot", safetyClass: "destructive", sim: true, args: { confirm: "wrong" } })),
+    ).toThrow();
   });
 
   it("refuses a destructive tool with no configured phrase", () => {

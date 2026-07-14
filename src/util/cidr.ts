@@ -23,6 +23,9 @@ function ipv4ToInt(ip: string): number | null {
 function matchIpv4Cidr(ip: string, cidr: string): boolean {
   const [base, bitsStr] = cidr.split("/");
   if (base === undefined) return false;
+  // A trailing slash with no mask ("x.x.x.x/") is malformed; it must NOT parse
+  // to /0 (which would match every address and silently disable the pin).
+  if (bitsStr !== undefined && bitsStr.trim() === "") return false;
   const bits = bitsStr === undefined ? 32 : Number(bitsStr);
   if (!Number.isInteger(bits) || bits < 0 || bits > 32) return false;
   const ipInt = ipv4ToInt(ip);

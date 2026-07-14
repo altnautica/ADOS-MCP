@@ -3,7 +3,8 @@
 // plane. Its full reach (Convex reads, command enqueue, MQTT subscriptions) is
 // wired in the read plane phase; this scaffold implements the mode, description,
 // and an honest health report, and refuses reads it cannot yet serve with a
-// clear typed error rather than fabricating data (Rule 44).
+// clear typed error rather than fabricating data (a surface reports verified
+// state or none).
 
 import { GateError } from "../gate/errors.js";
 import type { NodeRef, NodeStatus, PlaneHealth, PlaneMode, PlatformPlane } from "./platform-plane.js";

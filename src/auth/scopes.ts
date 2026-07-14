@@ -48,6 +48,8 @@ export const SCOPE_CAPABILITIES: Record<ScopeGroup, readonly string[]> = {
     "recording.write",
     "mission.write.stage",
     "vision.model.register",
+    "vision.designate",
+    "video.snapshot",
     "display.oled.page",
   ],
   admin: [

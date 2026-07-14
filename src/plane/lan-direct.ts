@@ -42,7 +42,8 @@ export class LanDirectPlane implements PlatformPlane {
 
   async health(): Promise<PlaneHealth> {
     try {
-      await this.get("/api/status");
+      // A short timeout so /healthz stays fast even when the agent is down.
+      await this.get("/api/status", 2000);
       return { ok: true, target: this.baseUrl };
     } catch (err) {
       return {
@@ -58,18 +59,19 @@ export class LanDirectPlane implements PlatformPlane {
   }
 
   /** Perform an authenticated GET against the agent REST, mapping failures. */
-  protected async get<T = unknown>(path: string): Promise<T> {
-    return this.request<T>("GET", path);
+  protected async get<T = unknown>(path: string, timeoutMs?: number): Promise<T> {
+    return this.request<T>("GET", path, undefined, timeoutMs);
   }
 
   protected async request<T = unknown>(
     method: string,
     path: string,
     body?: unknown,
+    timeoutMs?: number,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs ?? this.timeoutMs);
     try {
       const headers: Record<string, string> = { Accept: "application/json" };
       if (this.config.apiKey) headers["X-ADOS-Key"] = this.config.apiKey;

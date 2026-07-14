@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
 import { GateError } from "../../src/gate/errors.js";
 import {
   makeCore,
@@ -6,6 +7,25 @@ import {
   registerFakeAdminTool,
   registerFakeReadTool,
 } from "../helpers.js";
+import type { ServerCore } from "../../src/server.js";
+
+function registerFakeRestartTool(core: ServerCore): void {
+  core.tools.register({
+    name: "services.restart",
+    description: "fake restart",
+    inputSchema: z.object({ name: z.string(), confirm: z.boolean().optional() }),
+    handler: async (args) => ({ restarted: args.name }),
+  });
+}
+
+function registerFakeEmergencyStop(core: ServerCore): void {
+  core.tools.register({
+    name: "flight.emergency_stop",
+    description: "fake e-stop",
+    inputSchema: z.object({ confirm: z.string().optional(), confirm_id: z.string().optional() }),
+    handler: async () => ({ stopped: true }),
+  });
+}
 
 async function readAuth(core: ReturnType<typeof makeCore>["core"], scopes: string[] = ["read"]) {
   const token = await mintLocalToken({ scopes: scopes as never });
@@ -118,5 +138,64 @@ describe("GatePipeline fleet-mode targeting", () => {
     await expect(
       core.pipeline.callTool("status.get", { node: "ados-b" }, auth, "sess"),
     ).rejects.toMatchObject({ reason: "node_not_allowed" });
+  });
+
+  it("fails CLOSED on an empty allowedNodes in fleet-mode (never 'any node')", async () => {
+    const { core } = makeCore({ mode: "fleet", convexUrl: "https://convex.example" });
+    registerFakeReadTool(core);
+    const token = await mintLocalToken({ scopes: ["read"] as never, allowedNodes: [] });
+    const auth = await core.pipeline.authenticateBearer(token);
+    await expect(
+      core.pipeline.callTool("status.get", { node: "ados-anything" }, auth, "sess"),
+    ).rejects.toMatchObject({ reason: "node_not_allowed" });
+  });
+});
+
+describe("GatePipeline audit-fix behaviors", () => {
+  it("escalates services.restart of an armed-critical unit to the flight scope", async () => {
+    const { core } = makeCore();
+    registerFakeRestartTool(core);
+    const admin = await readAuth(core, ["read", "safe_write", "admin"]);
+    // An armed-critical unit escalates to flight; an admin-only token is refused.
+    await expect(
+      core.pipeline.callTool("services.restart", { name: "ados-mavlink", confirm: true }, admin, "s"),
+    ).rejects.toMatchObject({ reason: "scope_missing" });
+    // A non-critical unit stays admin (passes with confirm).
+    const ok = await core.pipeline.callTool(
+      "services.restart",
+      { name: "ados-camera", confirm: true },
+      admin,
+      "s",
+    );
+    expect(ok.content[0]?.text).toContain("restarted");
+  });
+
+  it("refuses a flight-affecting destructive tool while the enforce flag is off", async () => {
+    const { core } = makeCore({ flightEnforced: false });
+    registerFakeEmergencyStop(core);
+    const auth = await readAuth(core, ["read", "destructive"]);
+    await expect(
+      core.pipeline.callTool("flight.emergency_stop", { confirm: "x" }, auth, "s"),
+    ).rejects.toMatchObject({ reason: "ws_proxy_enforce_off" });
+    // And it is not even listed while enforce is off.
+    expect(core.pipeline.listTools(auth).map((t) => t.name)).not.toContain("flight.emergency_stop");
+  });
+
+  it("returns success even if the audit write throws after the handler ran", async () => {
+    const { core, audit } = makeCore();
+    registerFakeReadTool(core);
+    // Make record() throw once the handler has already run.
+    const original = audit.record.bind(audit);
+    let threw = false;
+    audit.record = async (e) => {
+      if (!threw) {
+        threw = true;
+        throw new Error("logd blip");
+      }
+      return original(e);
+    };
+    const auth = await readAuth(core, ["read"]);
+    const result = await core.pipeline.callTool("status.get", {}, auth, "s");
+    expect(result.content[0]?.text).toContain("ok");
   });
 });

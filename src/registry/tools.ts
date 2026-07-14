@@ -57,8 +57,9 @@ export class ToolRegistry {
       const entry = routeCapFor(def.name);
       if (!entry) continue;
       if (!scopeCoversTool(ctx.claims.scopes, entry)) continue;
-      // A flight-class tool is hidden until the enforce flag is on.
-      if (entry.scope === "flight" && !ctx.flightEnforced) continue;
+      // Any tool that changes in-flight behavior is hidden until the enforce
+      // flag is on, whether its class is flight or (like emergency_stop) destructive.
+      if ((entry.scope === "flight" || entry.affectsFlight) && !ctx.flightEnforced) continue;
       out.push(this.toPublic(def));
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

@@ -115,8 +115,17 @@ export async function verifyToken(
   const { claims, blob, signature } = parseToken(token);
   const ref = classifyIssuer(claims.iss);
 
-  const key = await resolver(ref);
-  const ok = await subtle.verify("HMAC", key, signature as BufferSource, blob as BufferSource);
+  // Try each candidate key (the cloud issuer supplies current + previous so a
+  // token minted just before a rotation still verifies). Accept on the first
+  // match; a constant-time compare runs inside subtle.verify per key.
+  const keys = await resolver(ref);
+  let ok = false;
+  for (const key of keys) {
+    if (await subtle.verify("HMAC", key, signature as BufferSource, blob as BufferSource)) {
+      ok = true;
+      break;
+    }
+  }
   if (!ok) throw new TokenInvalid(`${ref.kind} signature mismatch`);
 
   const now = opts.now ?? Date.now();

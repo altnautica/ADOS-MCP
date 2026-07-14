@@ -46,7 +46,16 @@ async function main(): Promise<void> {
       servers.push(await startHttpServer(core, config.httpPort));
     }
     if (config.transports.has("unix")) {
-      servers.push(await startUnixServer(core, config.unixSocketPath));
+      // The on-box socket is an opportunistic convenience; if it cannot bind
+      // (the run dir is absent, a dev host, a permissions issue) the HTTP
+      // transport still serves, so a socket failure never stops the server.
+      try {
+        servers.push(await startUnixServer(core, config.unixSocketPath));
+      } catch (err) {
+        logger.warn(`on-box socket unavailable at ${config.unixSocketPath}, continuing`, {
+          err: String(err),
+        });
+      }
     }
     mdns = advertiseMdns(config);
   }

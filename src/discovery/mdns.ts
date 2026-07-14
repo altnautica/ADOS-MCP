@@ -1,8 +1,8 @@
-// Agent-mode mDNS advertisement of _ados-mcp._tcp. Rule 47: the advertised host
-// is the real system hostname (what avahi actually publishes as <host>.local),
-// never a synthesized name. The TXT record carries fields a client can filter on
-// before it has a token. Discovery is best-effort; a failure to advertise never
-// stops the server.
+// Agent-mode mDNS advertisement of _ados-mcp._tcp. The advertised host is the
+// real system hostname (what avahi actually publishes as <host>.local), never a
+// synthesized name that would not resolve. The TXT record carries fields a client
+// can filter on before it has a token. Discovery is best-effort; a failure to
+// advertise never stops the server.
 
 import os from "node:os";
 import { Bonjour } from "bonjour-service";
@@ -16,9 +16,9 @@ export interface MdnsHandle {
 
 export function advertiseMdns(config: ServerConfig): MdnsHandle | null {
   if (!config.mdns) return null;
-  // Lead with the real avahi-published system hostname (Rule 47). If an explicit
-  // hostname override is given it must itself be a resolvable name, not a
-  // constructed one; the default is os.hostname(), which avahi publishes.
+  // Lead with the real avahi-published system hostname. If an explicit hostname
+  // override is given it must itself be a resolvable name, not a constructed one;
+  // the default is os.hostname(), which avahi publishes.
   const host = config.mdnsHostname ?? os.hostname();
   try {
     const bonjour = new Bonjour();

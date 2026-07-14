@@ -22,6 +22,7 @@ import {
 } from "./safety.js";
 import { canonicalJson } from "../auth/canonical.js";
 import { sourceIpAllowed } from "../util/cidr.js";
+import { logger } from "../util/logger.js";
 import type { AuditSink } from "../audit/sink.js";
 import type { AuditDecision, AuditEvent, AuditPlane } from "../audit/event.js";
 import { redactArgs } from "../audit/event.js";
@@ -87,6 +88,9 @@ function isNetworkConfigPath(path: unknown): boolean {
   if (typeof path !== "string") return false;
   return /(^|\.)(network|wifi|wfb|uplink|modem|ethernet|radio)(\.|$)/i.test(path);
 }
+
+/** Restarting one of these units mid-flight is flight-critical, so it escalates. */
+const ARMED_CRITICAL_UNITS = new Set(["ados-mavlink", "ados-supervisor", "ados-video"]);
 
 export class GatePipeline {
   private readonly operatorPresent: OperatorPresence;
@@ -179,8 +183,10 @@ export class GatePipeline {
           required: eff.scope,
         });
       }
-      // A flight tool cannot be invoked while the enforce flag is off.
-      if (eff.scope === "flight" && !this.deps.config.flightEnforced) {
+      // A tool that changes in-flight behavior cannot be invoked while the
+      // MAVLink proxy enforce flag is off, whether its class is flight or (like
+      // emergency_stop) destructive.
+      if ((eff.scope === "flight" || baseEntry.affectsFlight) && !this.deps.config.flightEnforced) {
         throw new GateError("ws_proxy_enforce_off", `${name} is disabled until MAVLink auth is enforced`);
       }
 
@@ -233,7 +239,17 @@ export class GatePipeline {
       };
       const value = await def.handler(parsed.data as Record<string, unknown>, ctx);
 
-      await this.writeAudit(auth, name, args, node, decision, summarize(value), started, allowSecrets, mcpSession);
+      // The handler already ran; an audit-write failure here must not re-label a
+      // completed call as denied nor tell the client it failed. Record best-effort
+      // and surface the write failure to the operator log.
+      try {
+        await this.writeAudit(auth, name, args, node, decision, summarize(value), started, allowSecrets, mcpSession);
+      } catch (auditErr) {
+        logger.warn("audit write failed after a successful call", {
+          tool: name,
+          err: String(auditErr),
+        });
+      }
       return wrapResult(value);
     } catch (err) {
       const gerr = err instanceof GateError ? err : new GateError("not_supported", String(err));
@@ -263,10 +279,19 @@ export class GatePipeline {
       }
       return self;
     }
-    // fleet-mode
-    if (!requested) throw new GateError("node_required", `${"node"} is required in fleet-mode`);
+    // fleet-mode. Targeting is enforced from the verified token claim, never the
+    // request body, and it fails CLOSED: an empty allowedNodes does not mean "any
+    // node" (that would be a confused-deputy hole); a fleet token must enumerate
+    // the nodes it may reach.
+    if (!requested) throw new GateError("node_required", "node is required in fleet-mode");
     const allowed = auth.claims.allowedNodes;
-    if (allowed.length > 0 && !allowed.includes(requested)) {
+    if (allowed.length === 0) {
+      throw new GateError(
+        "node_not_allowed",
+        "token has no allowed nodes; mint it with an explicit node list",
+      );
+    }
+    if (!allowed.includes(requested)) {
       throw new GateError("node_not_allowed", `token may not target ${requested}`);
     }
     return requested;
@@ -285,6 +310,9 @@ export class GatePipeline {
     }
     if (tool === "config.set" && isNetworkConfigPath(args.path)) {
       return { scope: "admin", capability: "network.outbound", safetyClass: "admin" };
+    }
+    if (tool === "services.restart" && ARMED_CRITICAL_UNITS.has(String(args.name))) {
+      return { scope: "flight", capability: "vehicle.command", safetyClass: "flight" };
     }
     return { scope: entry.scope, capability: entry.capability, safetyClass: entry.safetyClass };
   }

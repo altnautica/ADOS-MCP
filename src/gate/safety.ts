@@ -94,11 +94,33 @@ export class SafetyGate {
       // as a refusal rather than an accidental allow.
       throw new GateError("not_supported", `${ctx.tool} has no confirm phrase configured`);
     }
+    // The typed phrase is public, so a client can produce it on its own; the
+    // phrase alone must never admit a destructive call. It is checked but not
+    // echoed, and an operator-signed confirm bound to this exact call is required
+    // in addition, exactly as the flight gate requires. With no signed-confirm
+    // backend the gate fails closed. Sim waives the signature (never the phrase).
     if (ctx.args.confirm !== phrase) {
       throw new GateError(
         "confirm_required",
-        `${ctx.tool} requires the exact typed phrase`,
-        { tool: ctx.tool, phrase },
+        `${ctx.tool} requires the exact typed confirm phrase and an operator signed confirm`,
+        { tool: ctx.tool },
+      );
+    }
+    if (ctx.sim) return { decision: "confirmed" };
+    const confirmId = typeof ctx.args.confirm_id === "string" ? ctx.args.confirm_id : undefined;
+    const signed =
+      confirmId !== undefined &&
+      ctx.signedConfirm.consume({
+        confirmId,
+        tool: ctx.tool,
+        node: ctx.node,
+        argsHash: ctx.argsHash,
+      });
+    if (!signed) {
+      throw new GateError(
+        "confirm_required",
+        `${ctx.tool} requires an operator signed confirm bound to this call`,
+        { tool: ctx.tool },
       );
     }
     return { decision: "confirmed" };

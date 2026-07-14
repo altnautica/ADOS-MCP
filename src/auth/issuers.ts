@@ -87,8 +87,13 @@ export async function deriveAgentTokenSecret(
   return importHmacKey(new Uint8Array(bits));
 }
 
-/** Resolves the verify key for a token, by issuer family. */
-export type SecretResolver = (ref: IssuerRef) => Promise<CryptoKey>;
+/**
+ * Resolves the candidate verify keys for a token, by issuer family. More than
+ * one key supports secret rotation: the cloud issuer returns the current AND the
+ * previous operator secret, so a token minted just before a rotation still
+ * verifies until it expires. The verifier accepts the token if any key matches.
+ */
+export type SecretResolver = (ref: IssuerRef) => Promise<CryptoKey[]>;
 
 /**
  * Build a resolver for a set of issuer backends. Any family without a backend
@@ -97,24 +102,28 @@ export type SecretResolver = (ref: IssuerRef) => Promise<CryptoKey>;
  */
 export function makeResolver(backends: {
   agent?: { pairingKey: string; revocationSalt?: Uint8Array };
-  cloud?: (userId: string) => Promise<Uint8Array | null>;
+  cloud?: (userId: string) => Promise<Uint8Array[] | null>;
   local?: Uint8Array;
 }): SecretResolver {
   return async (ref) => {
     switch (ref.kind) {
       case "agent": {
         if (!backends.agent) throw new TokenInvalid("agent issuer not supported by this server");
-        return deriveAgentTokenSecret(backends.agent.pairingKey, backends.agent.revocationSalt);
+        return [
+          await deriveAgentTokenSecret(backends.agent.pairingKey, backends.agent.revocationSalt),
+        ];
       }
       case "cloud": {
         if (!backends.cloud) throw new TokenInvalid("cloud issuer not supported by this server");
-        const secret = await backends.cloud(ref.subject);
-        if (!secret) throw new TokenInvalid(`no operator secret for ${ref.subject}`);
-        return importHmacKey(secret);
+        const secrets = await backends.cloud(ref.subject);
+        if (!secrets || secrets.length === 0) {
+          throw new TokenInvalid(`no operator secret for ${ref.subject}`);
+        }
+        return Promise.all(secrets.map((s) => importHmacKey(s)));
       }
       case "local": {
         if (!backends.local) throw new TokenInvalid("local issuer not supported by this server");
-        return importHmacKey(backends.local);
+        return [await importHmacKey(backends.local)];
       }
     }
   };

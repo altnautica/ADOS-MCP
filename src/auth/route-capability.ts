@@ -25,6 +25,13 @@ export interface RouteCapEntry {
   secretPossible?: boolean;
   /** True when the tool can escalate to a higher class from its arguments. */
   escalates?: boolean;
+  /**
+   * True when the tool writes MAVLink / changes in-flight behavior, even if its
+   * class is not `flight` (emergency_stop is `destructive`). Such tools are
+   * hidden and refused until the MAVLink proxy enforce flag is confirmed on, and
+   * are never exposed to a token without the flight scope.
+   */
+  affectsFlight?: boolean;
 }
 
 const R = (
@@ -89,19 +96,19 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
   R("plugins.config", "safe_write", "config.set"),
   R("plugins.logs", "read", "telemetry.read"),
   // flight.* (gated, off by default)
-  R("flight.arm", "flight", "vehicle.command"),
-  R("flight.disarm", "flight", "vehicle.command"),
-  R("flight.takeoff", "flight", "vehicle.command"),
-  R("flight.land", "flight", "vehicle.command"),
-  R("flight.rtl", "flight", "vehicle.command"),
-  R("flight.mode", "flight", "vehicle.command"),
-  R("flight.goto", "flight", "flight.guided_setpoint"),
-  R("flight.emergency_stop", "destructive", "flight.terminate"),
+  R("flight.arm", "flight", "vehicle.command", { affectsFlight: true }),
+  R("flight.disarm", "flight", "vehicle.command", { affectsFlight: true }),
+  R("flight.takeoff", "flight", "vehicle.command", { affectsFlight: true }),
+  R("flight.land", "flight", "vehicle.command", { affectsFlight: true }),
+  R("flight.rtl", "flight", "vehicle.command", { affectsFlight: true }),
+  R("flight.mode", "flight", "vehicle.command", { affectsFlight: true }),
+  R("flight.goto", "flight", "flight.guided_setpoint", { affectsFlight: true }),
+  R("flight.emergency_stop", "destructive", "flight.terminate", { affectsFlight: true }),
   // mission.* (read + gated write)
   R("mission.read", "read", "mission.read"),
   R("mission.download", "read", "mission.read"),
-  R("mission.upload", "flight", "mission.write"),
-  R("mission.clear", "flight", "mission.write"),
+  R("mission.upload", "flight", "mission.write", { affectsFlight: true }),
+  R("mission.clear", "flight", "mission.write", { affectsFlight: true }),
   // vision.* (read + gated write)
   R("vision.status", "read", "perception.read"),
   R("vision.detector_get", "read", "perception.read"),

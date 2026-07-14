@@ -24,6 +24,7 @@ patterns=(
   'Wave [A-Z] '
   'Bug #[0-9]'
   'BT-G?[0-9]'
+  'Rule [0-9]'
   'referenceCode'
   'MissionPlanner'
   'QGroundControl'

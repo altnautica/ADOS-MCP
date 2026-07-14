@@ -43,4 +43,12 @@ describe("route-to-capability table", () => {
     expect(known.has("status.get")).toBe(true);
     expect(known.size).toBe(ROUTE_CAPABILITY_TABLE.length);
   });
+
+  it("marks every in-flight-behavior tool affectsFlight, incl. the destructive e-stop", () => {
+    for (const t of ["flight.arm", "flight.goto", "flight.emergency_stop", "mission.upload"]) {
+      expect(routeCapFor(t)?.affectsFlight).toBe(true);
+    }
+    // A read tool never affects flight.
+    expect(routeCapFor("status.get")?.affectsFlight).toBeUndefined();
+  });
 });

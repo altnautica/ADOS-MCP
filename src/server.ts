@@ -29,7 +29,7 @@ import { DenylistRevocation, NO_REVOCATION, type RevocationSource } from "./auth
 import { StderrAuditSink, MultiAuditSink, type AuditSink } from "./audit/sink.js";
 import { LanDirectPlane } from "./plane/lan-direct.js";
 import { CloudRelayPlane } from "./plane/cloud-relay.js";
-import type { PlatformPlane } from "./plane/platform-plane.js";
+import type { PlaneHealth, PlatformPlane } from "./plane/platform-plane.js";
 import type { ServerConfig } from "./config.js";
 import { MCP_SPEC_REVISION, SERVER_NAME, SERVER_VERSION } from "./version.js";
 import { logger } from "./util/logger.js";
@@ -61,6 +61,8 @@ export class ServerCore {
   readonly audit: AuditSink;
   private readonly als = new AsyncLocalStorage<AlsStore>();
   private fixedPrincipal: AuthContext | null = null;
+  private cachedPlaneHealth: PlaneHealth | null = null;
+  private lastHealthProbe = 0;
 
   constructor(
     readonly config: ServerConfig,
@@ -163,6 +165,42 @@ export class ServerCore {
       mcpRevision: MCP_SPEC_REVISION,
       mode: d.mode,
       target: d.target,
+    };
+  }
+
+  /**
+   * Honest health for /healthz. `ok` is true when the server can serve and audit;
+   * `degraded` is true when the bound plane is unreachable (reads that hit it will
+   * fail, but the server itself is up). The plane probe is cached briefly so a
+   * frequent probe does not hammer the agent.
+   */
+  async healthz(): Promise<{
+    ok: boolean;
+    degraded: boolean;
+    version: string;
+    mcpRevision: string;
+    mode: string;
+    target: string;
+    audit: boolean;
+    plane: PlaneHealth;
+  }> {
+    const now = Date.now();
+    if (!this.cachedPlaneHealth || now - this.lastHealthProbe > 5000) {
+      this.cachedPlaneHealth = await this.plane.health();
+      this.lastHealthProbe = now;
+    }
+    const auditHealthy = this.audit.healthy();
+    const plane = this.cachedPlaneHealth;
+    const info = this.info();
+    return {
+      ok: auditHealthy,
+      degraded: !plane.ok,
+      version: info.version,
+      mcpRevision: info.mcpRevision,
+      mode: info.mode,
+      target: info.target,
+      audit: auditHealthy,
+      plane,
     };
   }
 
