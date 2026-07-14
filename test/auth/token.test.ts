@@ -104,3 +104,39 @@ describe("token mint + verify (agent issuer, HKDF from pairing key)", () => {
     await expect(verifyToken(token, localOnly)).rejects.toThrow(/agent issuer not supported/);
   });
 });
+
+// Cross-implementation known-answer vector. This EXACT token string is minted by
+// the Rust agent (its mcp_token known-answer test) for pairing key "ados_kat_key",
+// node "kat-node", scopes ["read"]. Verifying it here proves the HKDF derivation,
+// the HMAC, and the wire form agree byte-for-byte across the two implementations;
+// if either side drifts, agent-direct tokens silently stop verifying and this
+// test fails.
+describe("agent-issuer KAT interop with the Rust agent", () => {
+  const RUST_AGENT_KAT =
+    "eyJ0b2tlbklkIjoibWN0X2thdCIsIm9wZXJhdG9ySWQiOiJjbG91ZDprYXQiLCJpc3MiOiJhZ2VudDprYXQtbm9kZSIsInNjb3BlcyI6WyJyZWFkIl0sImFsbG93ZWROb2RlcyI6W10sImV4cGlyZXNBdCI6NDEwMjQ0NDgwMDAwMCwibGFiZWwiOiJrYXQifQ.tDF9_imw40e4YE-w1fShPjE-Nl14sRW7pOg-QRb5qcQ";
+
+  it("verifies the exact token the Rust agent mints for the same key", async () => {
+    const resolver = makeResolver({ agent: { pairingKey: "ados_kat_key" } });
+    const verified = await verifyToken(RUST_AGENT_KAT, resolver, {
+      expectedNodeId: "kat-node",
+      now: 1,
+    });
+    expect(verified.tokenId).toBe("mct_kat");
+    expect(verified.iss).toBe("agent:kat-node");
+    expect(verified.scopes).toEqual(["read"]);
+  });
+
+  it("rejects the Rust token under a different pairing key", async () => {
+    const resolver = makeResolver({ agent: { pairingKey: "wrong-key" } });
+    await expect(
+      verifyToken(RUST_AGENT_KAT, resolver, { expectedNodeId: "kat-node", now: 1 }),
+    ).rejects.toThrow(/signature mismatch/);
+  });
+
+  it("rejects the Rust token for a different node subject", async () => {
+    const resolver = makeResolver({ agent: { pairingKey: "ados_kat_key" } });
+    await expect(
+      verifyToken(RUST_AGENT_KAT, resolver, { expectedNodeId: "other-node", now: 1 }),
+    ).rejects.toThrow(/does not match this node/);
+  });
+});
