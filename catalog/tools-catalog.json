@@ -96,7 +96,7 @@
       "group": "audit",
       "scope": "read",
       "safetyClass": "read",
-      "description": "Full-text search over this MCP server's own local audit log (tool name, node, operator, and result summary), newest first."
+      "description": "Search this MCP server's own local audit log, newest first. The query is a field-qualified grammar: a `field:value` term (field one of tool / node / operator / decision / result) filters that field, and any other term is matched across the whole event. Example: `tool:params.set decision:denied`."
     },
     {
       "name": "config.get",

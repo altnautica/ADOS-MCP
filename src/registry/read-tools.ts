@@ -17,6 +17,7 @@ import {
 } from "../param-metadata/loader.js";
 import type { FirmwareHint, ParamEntry } from "../plane/platform-plane.js";
 import { queryAuditFile } from "../audit/file-sink.js";
+import { matchesAuditQuery, parseAuditQuery } from "../audit/search-grammar.js";
 
 const NODE = z.string().optional().describe("Device id (fleet-mode) or host (agent-mode)");
 
@@ -264,27 +265,25 @@ export function registerReadTools(reg: ToolRegistry, auditPath: string): void {
     {
       name: "audit.search",
       description:
-        "Full-text search over this MCP server's own local audit log (tool name, node, operator, and result summary), newest first.",
+        "Search this MCP server's own local audit log, newest first. The query is a field-qualified grammar: a `field:value` term (field one of tool / node / operator / decision / result) filters that field, and any other term is matched across the whole event. Example: `tool:params.set decision:denied`.",
       inputSchema: z.object({
-        query: z.string().describe("Case-insensitive substring to match across the event."),
+        query: z
+          .string()
+          .describe("Field-qualified terms (tool:/node:/operator:/decision:/result:) and/or free text."),
         decision: z.enum(["allowed", "denied", "confirmed", "operator_absent"]).optional(),
         sinceMs: z.number().int().optional(),
         limit: z.number().int().min(1).max(1000).optional(),
       }),
       annotations: READ,
       handler: async (a) => {
-        const q = String(a.query).toLowerCase();
+        const parsed = parseAuditQuery(String(a.query));
         const scanned = await queryAuditFile(auditPath, {
           ...(typeof a.decision === "string" ? { decision: a.decision } : {}),
           ...(typeof a.sinceMs === "number" ? { sinceMs: a.sinceMs } : {}),
           limit: 1000,
         });
-        const match = (e: (typeof scanned)[number]): boolean =>
-          [e.tool, e.node, e.operatorId, e.result].some(
-            (s) => typeof s === "string" && s.toLowerCase().includes(q),
-          );
         const limit = typeof a.limit === "number" ? a.limit : 200;
-        const events = scanned.filter(match).slice(0, limit);
+        const events = scanned.filter((e) => matchesAuditQuery(e, parsed)).slice(0, limit);
         return { count: events.length, events };
       },
     },
