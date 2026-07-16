@@ -5,25 +5,33 @@ exist on an ADOS drone or ground station. It reimplements no flight, telemetry,
 or administration logic; it calls the platform's own surfaces and presents them
 through MCP.
 
-## One core, two modes
+## One core, three modes
 
-A single TypeScript core runs in either of two modes, chosen at launch with
-`--target`. The operator runs the server on their own machine in both.
+A single TypeScript core runs in one of three modes, chosen at launch with
+`--target`. The operator runs the server on their own machine in all three.
+**The local-first modes are primary (Rule 39); fleet-mode is the opt-in cloud
+path.**
 
-- **fleet-mode** (`--target fleet --gcs local|prod`) is the primary pathway. It
-  connects to a Mission Control (GCS) Convex backend — a local one or the
-  production one — as the operator, and reaches the operator's cloud-connected
-  drones through the same auth-gated functions Mission Control itself calls.
-  Every tool takes a `node` argument. Reach limit: only cloud-connected drones
-  are visible; a LAN-only drone is reached in agent-mode.
-- **agent-mode** (`--target agent <host>`) is the local-first direct pathway. It
-  reaches one drone over the LAN: its HTTP control surface, its local state and
-  MAVLink sockets, and its MAVLink WebSocket.
+- **agent-mode** (`--target agent <host>`) is the local-first direct pathway, and
+  the default. It reaches one drone over the LAN — its HTTP control surface, its
+  local state and MAVLink sockets, its MAVLink WebSocket — authorized by the
+  drone's own pairing key. No cloud, no login.
+- **local-fleet mode** (`--target local-fleet <fleet.json>`) reaches many LAN
+  drones with no cloud. It reads an operator-exported fleet file (each drone's
+  host + its own pairing key) and composes one LAN-direct adapter per drone, so a
+  single server drives a whole LAN fleet.
+- **fleet-mode** (`--target fleet --gcs local|prod`) is the opt-in "manage from
+  anywhere" pathway. It connects to a Mission Control (GCS) Convex backend as the
+  operator and reaches the operator's cloud-connected drones through the same
+  auth-gated functions Mission Control itself calls. It needs a signed-in
+  operator to mint a credential. Reach limit: only cloud-connected drones are
+  visible; a LAN-only drone is reached in agent- or local-fleet mode.
 
-Both modes expose the identical tool, resource, and prompt catalog. What differs
-is the adapter behind a `PlatformPlane` interface: a LAN-direct adapter for
-agent-mode, a GCS-interface adapter for fleet-mode. A tool is written once
-against the interface and runs on either.
+All three modes expose the identical tool, resource, and prompt catalog. What
+differs is the adapter behind a `PlatformPlane` interface: a LAN-direct adapter
+for agent-mode, a composed multi-node LAN-direct adapter for local-fleet, a
+GCS-interface adapter for fleet-mode. A tool is written once against the
+interface and runs on any of them.
 
 Because the server runs on the operator's machine, its durable audit store is a
 local newline-delimited JSON file the operator owns, alongside the always-on

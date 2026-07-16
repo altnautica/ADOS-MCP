@@ -29,23 +29,24 @@ The drone is the server; the AI is the client. No model runs on the drone. The s
 
 **Visibility is broad; action is gated.** Reading is open within the granted scope. Writing is controlled by that scope, a safety class per action, a confirmation step for anything that moves an aircraft or changes state, and an operator-present check for flight. Every call, allowed or denied, is recorded.
 
-## Two ways to run it
+## Ways to run it
 
-You run the server yourself, on your own machine, in one of two modes:
+You run the server yourself, on your own machine. **Local-first: reach your drones directly over the LAN — no sign-in, no cloud.** Cloud is an opt-in path for reaching your fleet from anywhere.
 
-| Mode | Command | Reaches |
-|------|---------|---------|
-| **Fleet-mode** | `--target fleet --gcs prod` | your Mission Control fleet (its cloud-connected drones) |
-| **Agent-mode** | `--target agent <host>` | one drone directly on the LAN |
+| Mode | Command | Reaches | Needs |
+|------|---------|---------|-------|
+| **Agent** (default) | `--target agent <host>` | one drone on your LAN | the drone's pairing key |
+| **Local fleet** | `--target local-fleet <fleet.json>` | many drones on your LAN | a fleet file (each drone's host + key) |
+| **Fleet** (cloud, opt-in) | `--target fleet --gcs prod` | your fleet from anywhere, via Mission Control | a Mission Control sign-in + a minted credential |
 
-Both expose the identical tools; only the reach differs.
+All three expose the identical tools; only the reach differs.
 
-- **Fleet-mode is the primary pathway.** The server connects to a **Mission Control (GCS) backend** — your own local one (`--gcs local`) or the production one (`--gcs prod`) — as you, the operator, and reaches the drones that Mission Control manages. It is the AI-native interface to your fleet. (Reach limit: Mission Control tracks cloud-connected drones; a drone that is only on your LAN is reached in agent-mode.)
-- **Agent-mode is the local-first direct pathway.** The server points straight at one drone's agent on the LAN — no cloud round-trip — the shape a bench or field setup uses.
+- **Agent and local-fleet are the local-first paths.** The server talks straight to your drones over the LAN — no cloud round-trip, no login. A drone's own pairing key (stored when you paired it in Mission Control) authorizes the connection. This is the everyday path for a bench, a field setup, or your own network.
+- **Fleet-mode is the opt-in "manage from anywhere" path.** It connects to a Mission Control (GCS) backend — your own local one (`--gcs local`) or the production one (`--gcs prod`) — as you, the operator, and reaches the drones Mission Control tracks in the cloud. Useful when you are off the drones' network; it needs a signed-in operator to mint a credential.
 
 ## Set it up (Claude Code)
 
-You run the server yourself, from this repo — there is no package to install. The Mission Control MCP tab has a guided wizard that walks you through these same steps and fills your real credential into the commands.
+You run the server yourself, from this repo — there is no package to install. The Mission Control MCP tab has a guided wizard that walks you through these steps and fills in your drone's host and pairing key (local) or your credential (cloud).
 
 **Prerequisites:** Node ≥ 20, git, [pnpm](https://pnpm.io) (`npm install -g pnpm`), and an MCP client (e.g. [Claude Code](https://docs.claude.com/claude-code)).
 
@@ -58,15 +59,22 @@ cd ADOS-MCP
 # (or do it by hand: pnpm install && pnpm build)
 ```
 
-**2. Mint a scoped machine credential** in the Mission Control MCP tab, then add the server to your client. The credential rides in the client's environment (`-e`), so it is not left in your shell:
+**2. Add the server to your client.** Start local — reach a drone on your LAN with no login. The pairing key rides in the client's environment (`-e`), not your shell (the wizard fills it in):
 
 ```bash
-# Your whole fleet, through Mission Control (production backend):
-claude mcp add ados -e ADOS_MCP_TOKEN=<paste-the-credential> -- \
-  node "$(pwd)/dist/index.js" --target fleet --gcs prod
+# One drone on the LAN:
+claude mcp add ados -e ADOS_MCP_AGENT_KEY=<pairing-key> -- \
+  node "$(pwd)/dist/index.js" --target agent <host>
 
-# One drone, directly on the LAN:
-claude mcp add ados-lan -- node "$(pwd)/dist/index.js" --target agent <host>
+# Many drones on the LAN (keys ride in the fleet file):
+claude mcp add ados -- node "$(pwd)/dist/index.js" --target local-fleet ~/.ados/mcp/fleet.json
+```
+
+Or, to reach your fleet from anywhere through the cloud (opt-in), mint a credential in the Mission Control MCP tab:
+
+```bash
+claude mcp add ados -e ADOS_MCP_TOKEN=<credential> -- \
+  node "$(pwd)/dist/index.js" --target fleet --gcs prod
 ```
 
 The server auto-selects the **stdio** transport when a client launches it, so no `--transport` flag is needed.
@@ -74,17 +82,21 @@ The server auto-selects the **stdio** transport when a client launches it, so no
 **3. Check it works** (optional, before or without a client):
 
 ```bash
-ADOS_MCP_TOKEN=<the-credential> node dist/index.js --target fleet --gcs prod --verify
-# → ✓ Connected — fleet mode → https://convex.altnautica.com
+# Local (a drone on your LAN):
+ADOS_MCP_AGENT_KEY=<pairing-key> node dist/index.js --target agent <host> --verify
+# → ✓ Connected — agent mode → http://<host>:8080
+
+# Cloud (your fleet from anywhere):
+ADOS_MCP_TOKEN=<credential> node dist/index.js --target fleet --gcs prod --verify
 ```
 
-The credential is scoped and revocable, and stored on the backend only as a hash. Revoke it in the tab to cut a server off instantly. Then ask your client for fleet status. See [`docs/`](./docs) for the tool catalog and the full architecture.
+Then ask your client for a drone's status. See [`docs/`](./docs) for the tool catalog and the full architecture.
 
 ## Transports
 
 - **Streamable HTTP** (`POST /mcp`, single endpoint, SSE upgrade for streams), the primary networked transport.
 - **stdio**, the local one-liner for Claude Code and Desktop.
-- **Unix socket** (`/run/ados/mcp.sock`), on-box in agent-mode, where local presence is the credential.
+- **Unix socket** (`/run/ados/mcp.sock`), on-box in agent and local-fleet modes, where local presence is the credential.
 
 ## Safety model
 

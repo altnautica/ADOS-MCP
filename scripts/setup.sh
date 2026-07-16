@@ -28,16 +28,21 @@ pnpm build
 
 cat <<EOF
 
-✓ Built. Add the server to Claude Code with the machine credential you mint in
-  the Mission Control MCP tab (it has a guided wizard):
+✓ Built. Add the server to Claude Code. Local-first (no login, no cloud) — the
+  Mission Control MCP tab has a guided wizard that fills in your drone's host and
+  key:
 
-  # Your whole Mission Control fleet:
-  claude mcp add ados -e ADOS_MCP_TOKEN=<paste-the-credential> -- \\
+  # One drone on your LAN (its pairing key rides in the client env):
+  claude mcp add ados -e ADOS_MCP_AGENT_KEY=<pairing-key> -- \\
+    node "$ROOT/dist/index.js" --target agent <host>
+
+  # Many drones on your LAN (keys ride in the fleet file the wizard exports):
+  claude mcp add ados -- node "$ROOT/dist/index.js" --target local-fleet ~/.ados/mcp/fleet.json
+
+  # Or reach your fleet from anywhere via the cloud (opt-in; mint a credential in the tab):
+  claude mcp add ados -e ADOS_MCP_TOKEN=<credential> -- \\
     node "$ROOT/dist/index.js" --target fleet --gcs prod
 
-  # One drone directly on the LAN:
-  claude mcp add ados-lan -- node "$ROOT/dist/index.js" --target agent <host>
-
-  Check a fleet credential works, without a client:
-  ADOS_MCP_TOKEN=<the-credential> node "$ROOT/dist/index.js" --target fleet --gcs prod --verify
+  Check it works, without a client:
+  ADOS_MCP_AGENT_KEY=<pairing-key> node "$ROOT/dist/index.js" --target agent <host> --verify
 EOF
