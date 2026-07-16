@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 
 import { clearDynamicRouteCaps, routeCapFor } from "../../src/auth/route-capability.js";
 import {
+  refreshPluginTools,
   registerPluginTools,
   safetyToScope,
   toolsFromDetail,
@@ -197,6 +198,50 @@ describe("registerPluginTools", () => {
     const second = await registerPluginTools(reg, plane, "node1");
     expect(first).toBe(2);
     expect(second).toBe(0);
+  });
+});
+
+describe("refreshPluginTools (CFIX-3/4 — dynamic route-cap lifecycle)", () => {
+  // A plane whose plugin manifest CHANGES between passes: pass 1 exposes two
+  // tools (one read), pass 2 drops one and re-declares the other as safe_write.
+  const mutablePlane = (pass: { n: number }): PlatformPlane =>
+    ({
+      async getPlugins() {
+        return { installs: [{ plugin_id: "com.x.p" }] };
+      },
+      async getPluginInfo() {
+        const tools =
+          pass.n === 1
+            ? [
+                { name: "peek", safety_class: "read", half: "agent" },
+                { name: "gone", safety_class: "read", half: "agent" },
+              ]
+            : [{ name: "peek", safety_class: "safe_write", half: "agent" }];
+        return { granted_capabilities: ["mcp.expose"], manifest: { mcp: { tools } } };
+      },
+      async invokePluginTool() {
+        return {};
+      },
+    }) as unknown as PlatformPlane;
+
+  it("drops a removed tool + its route-cap and re-floors a changed one", async () => {
+    const reg = new ToolRegistry();
+    const pass = { n: 1 };
+    const plane = mutablePlane(pass);
+    await registerPluginTools(reg, plane, "n");
+    expect(reg.get("com.x.p:peek")).toBeDefined();
+    expect(reg.get("com.x.p:gone")).toBeDefined();
+    expect(routeCapFor("com.x.p:peek")?.scope).toBe("read");
+
+    // The plugin set changed: refresh must prune "gone" (and its dynamic
+    // route-cap) and re-floor "peek" to its new declared class.
+    pass.n = 2;
+    const count = await refreshPluginTools(reg, plane, "n");
+    expect(count).toBe(1);
+    expect(reg.get("com.x.p:gone")).toBeUndefined();
+    expect(routeCapFor("com.x.p:gone")).toBeUndefined(); // stale cap cleared
+    expect(reg.get("com.x.p:peek")).toBeDefined();
+    expect(routeCapFor("com.x.p:peek")?.scope).toBe("safe_write");
   });
 });
 

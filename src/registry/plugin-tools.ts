@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-import { registerDynamicRouteCap } from "../auth/route-capability.js";
+import { clearDynamicRouteCaps, registerDynamicRouteCap } from "../auth/route-capability.js";
 import type { RouteCapEntry } from "../auth/route-capability.js";
 import {
   grantsAffectFlight,
@@ -232,4 +232,23 @@ export async function registerPluginTools(
     }
   }
   return count;
+}
+
+/**
+ * Re-discover a node's plugin tools from scratch. Drops EVERY prior plugin tool
+ * and its dynamic route-cap, then registers the current set. Call whenever the
+ * plugin set may have changed (enable / disable / install / remove or a manifest
+ * edit) so a removed plugin's tool no longer lists and a changed safety class
+ * re-floors correctly — a plain re-run of {@link registerPluginTools} would skip
+ * already-registered names and leave a stale route-cap behind. Returns the number
+ * of plugin tools now registered.
+ */
+export async function refreshPluginTools(
+  reg: ToolRegistry,
+  plane: PlatformPlane,
+  node: NodeRef,
+): Promise<number> {
+  clearDynamicRouteCaps();
+  reg.unregisterPluginTools();
+  return registerPluginTools(reg, plane, node);
 }

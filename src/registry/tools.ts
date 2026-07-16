@@ -37,6 +37,23 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
+  /** Remove a tool by name (no-op if absent). Used to prune a plugin tool. */
+  unregister(name: string): void {
+    this.tools.delete(name);
+  }
+
+  /**
+   * Remove every plugin tool. A plugin tool's name is `${pluginId}:${tool}`, so
+   * it contains a ":", which a built-in tool name never does. Called before a
+   * plugin-tool refresh so a disabled/removed plugin's tools do not linger in
+   * tools/list and a changed safety class does not persist as a stale entry.
+   */
+  unregisterPluginTools(): void {
+    for (const name of [...this.tools.keys()]) {
+      if (name.includes(":")) this.tools.delete(name);
+    }
+  }
+
   all(): ToolDefinition[] {
     return [...this.tools.values()];
   }
