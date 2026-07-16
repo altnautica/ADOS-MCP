@@ -11,6 +11,11 @@ import { z } from "zod";
 
 import { registerDynamicRouteCap } from "../auth/route-capability.js";
 import type { RouteCapEntry } from "../auth/route-capability.js";
+import {
+  grantsAffectFlight,
+  impliedFloorForCaps,
+  maxSafetyClass,
+} from "../auth/scopes.js";
 import type { SafetyClass, ScopeGroup } from "../auth/scopes.js";
 import type { NodeRef, PlatformPlane } from "../plane/platform-plane.js";
 import type { ToolRegistry } from "./tools.js";
@@ -55,6 +60,12 @@ export interface DiscoveredPluginTool {
   description: string;
   inputSchema?: Record<string, unknown>;
   safetyClassRaw: unknown;
+  /**
+   * The plugin's granted platform capabilities. Every tool from one plugin
+   * carries the same set; it floors the tool's scope at the plugin's real reach
+   * so a self-declared `safety_class` cannot under-scope a high-impact tool.
+   */
+  grantedCapabilities: string[];
 }
 
 function asRecord(v: unknown): Record<string, unknown> | undefined {
@@ -80,6 +91,8 @@ export function toolsFromDetail(pluginId: string, detail: unknown): DiscoveredPl
   // Exposure gate: the plugin must carry mcp.expose in its granted capabilities.
   const granted = Array.isArray(d.granted_capabilities) ? d.granted_capabilities : [];
   if (!granted.includes("mcp.expose")) return [];
+  // The plugin's granted capabilities (string ids only) floor each tool's scope.
+  const grantedCapabilities = granted.filter((c): c is string => typeof c === "string");
   const manifest = asRecord(d.manifest);
   const mcp = manifest ? asRecord(manifest.mcp) : undefined;
   const rawTools = mcp && Array.isArray(mcp.tools) ? mcp.tools : [];
@@ -98,6 +111,7 @@ export function toolsFromDetail(pluginId: string, detail: unknown): DiscoveredPl
       description: asString(t.title) ?? asString(t.description) ?? `Plugin tool ${name}`,
       inputSchema: asRecord(t.inputSchema),
       safetyClassRaw: t.safety_class,
+      grantedCapabilities,
     });
   }
   return out;
@@ -106,7 +120,21 @@ export function toolsFromDetail(pluginId: string, detail: unknown): DiscoveredPl
 /** Register one discovered plugin tool into the registry + the dynamic route-cap. */
 function registerOne(reg: ToolRegistry, tool: DiscoveredPluginTool): void {
   const nsName = `${tool.pluginId}:${tool.toolName}`;
-  const { scope, safetyClass, affectsFlight } = safetyToScope(tool.safetyClassRaw);
+  const declared = safetyToScope(tool.safetyClassRaw);
+  // Floor the tool's class at what the plugin's GRANTED capabilities imply, so a
+  // self-declared `safety_class` can never under-scope a tool below the plugin's
+  // real reach (a plugin holding mavlink.write / vehicle.command / a mission-write
+  // cap makes ALL its tools flight-class, whatever they declare). Never resolves
+  // BELOW the declared class; a genuinely read-only plugin keeps its read tools.
+  const floor = impliedFloorForCaps(tool.grantedCapabilities);
+  const safetyClass: SafetyClass = floor
+    ? maxSafetyClass(declared.safetyClass, floor)
+    : declared.safetyClass;
+  const scope: ScopeGroup = safetyClass;
+  const affectsFlight =
+    declared.affectsFlight ||
+    safetyClass === "flight" ||
+    grantsAffectFlight(tool.grantedCapabilities);
   const entry: RouteCapEntry = {
     tool: nsName,
     scope,
