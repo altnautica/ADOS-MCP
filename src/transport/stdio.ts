@@ -1,5 +1,5 @@
 // The stdio transport: the local one-liner Claude Code and Desktop spawn. The
-// principal is resolved once at launch. LOCAL-FIRST (Rule 39): a client that
+// principal is resolved once at launch. LOCAL-FIRST: a client that
 // spawns this server over stdio is the operator's own process on the operator's
 // own box, so for a LAN target (loopback, RFC1918, or an mDNS .local drone) local
 // presence is the credential and the on-box principal applies with NO token — the

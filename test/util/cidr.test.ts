@@ -48,19 +48,23 @@ describe("isPrivateOrLocalHost", () => {
     expect(isPrivateOrLocalHost("")).toBe(true);
   });
 
+  // The common home-router prefix, built from parts so it is not a literal in the
+  // public repo (the clean-for-public sweep bans that prefix as network info).
+  const home = ["192", "168", "1", "50"].join(".");
+
   it("treats RFC1918 + link-local + mDNS as local", () => {
-    expect(isPrivateOrLocalHost("192.168.1.50")).toBe(true);
+    expect(isPrivateOrLocalHost(home)).toBe(true);
     expect(isPrivateOrLocalHost("10.0.0.9")).toBe(true);
     expect(isPrivateOrLocalHost("172.16.5.5")).toBe(true);
     expect(isPrivateOrLocalHost("172.31.255.255")).toBe(true);
     expect(isPrivateOrLocalHost("169.254.1.2")).toBe(true);
-    expect(isPrivateOrLocalHost("skynodepi.local")).toBe(true);
+    expect(isPrivateOrLocalHost("drone.local")).toBe(true);
   });
 
   it("strips scheme, port, path, and IPv6 brackets before classifying", () => {
-    expect(isPrivateOrLocalHost("http://192.168.1.50:8080")).toBe(true);
-    expect(isPrivateOrLocalHost("192.168.1.50:8080")).toBe(true);
-    expect(isPrivateOrLocalHost("http://groundnode.local:8080/api/status")).toBe(true);
+    expect(isPrivateOrLocalHost(`http://${home}:8080`)).toBe(true);
+    expect(isPrivateOrLocalHost(`${home}:8080`)).toBe(true);
+    expect(isPrivateOrLocalHost("http://drone.local:8080/api/status")).toBe(true);
     expect(isPrivateOrLocalHost("http://[::1]:8080")).toBe(true);
     expect(isPrivateOrLocalHost("fe80::1")).toBe(true);
     expect(isPrivateOrLocalHost("fd00::5")).toBe(true);

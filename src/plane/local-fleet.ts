@@ -1,4 +1,4 @@
-// LocalFleetPlane: the LOCAL-FIRST multi-drone plane (Rule 39). It composes one
+// LocalFleetPlane: the LOCAL-FIRST multi-drone plane. It composes one
 // LanDirectPlane per LAN-paired drone — each with its own host + X-ADOS-Key — so
 // an AI client reaches a WHOLE fleet directly over the LAN with no cloud, no
 // login, and no relay. The fleet is the operator-exported list of drones already

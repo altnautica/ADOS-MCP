@@ -9,8 +9,7 @@ through MCP.
 
 A single TypeScript core runs in one of three modes, chosen at launch with
 `--target`. The operator runs the server on their own machine in all three.
-**The local-first modes are primary (Rule 39); fleet-mode is the opt-in cloud
-path.**
+**The local-first modes are primary; fleet-mode is the opt-in cloud path.**
 
 - **agent-mode** (`--target agent <host>`) is the local-first direct pathway, and
   the default. It reaches one drone over the LAN — its HTTP control surface, its
