@@ -114,11 +114,33 @@ function resolveLocalDevSecret(): Uint8Array | undefined {
   return utf8(env);
 }
 
+/**
+ * Resolve the effective transport. When `requested` is `auto`: an MCP client
+ * (Claude Code, Cursor, …) launches the server with `claude mcp add … -- <cmd>`
+ * and speaks the protocol over the child's stdio, piping its stdin — so a
+ * non-TTY stdin (`isSubprocess`) means "spawned by a client" and we use stdio,
+ * regardless of mode. This makes the common `--target fleet` one-liner work over
+ * stdio with no `--transport stdio` needed (the previous default sent fleet-mode
+ * to http, which an `mcp add -- …` stdio client could never talk to). When stdin
+ * IS a TTY — run by hand as a long-lived service — fall back to the mode default:
+ * http for fleet, stdio for agent. An explicit `--transport` always wins.
+ */
+export function resolveTransport(
+  requested: "auto" | "stdio" | "http" | "unix",
+  mode: PlaneMode,
+  isSubprocess: boolean,
+): "stdio" | "http" | "unix" {
+  if (requested !== "auto") return requested;
+  if (isSubprocess) return "stdio";
+  return mode === "fleet" ? "http" : "stdio";
+}
+
 export function resolveConfig(args: CliArgs): ServerConfig {
   const mode: PlaneMode = args.target;
 
-  const resolvedTransport =
-    args.transport === "auto" ? (mode === "fleet" ? "http" : "stdio") : args.transport;
+  // `process.stdin.isTTY` is truthy only for an interactive terminal; a client
+  // that spawns us over a pipe leaves it undefined (→ isSubprocess true).
+  const resolvedTransport = resolveTransport(args.transport, mode, !process.stdin.isTTY);
   const transports = new Set<"stdio" | "http" | "unix">();
   if (resolvedTransport === "stdio") transports.add("stdio");
   else if (resolvedTransport === "http") {
