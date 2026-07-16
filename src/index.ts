@@ -16,6 +16,7 @@ import { registerReadTools } from "./registry/read-tools.js";
 import { registerReadResources } from "./registry/read-resources.js";
 import { registerAdminTools } from "./registry/admin-tools.js";
 import { registerFlightTools } from "./registry/flight-tools.js";
+import { registerPluginTools } from "./registry/plugin-tools.js";
 import { registerReadPrompts } from "./registry/read-prompts.js";
 import { SERVER_VERSION } from "./version.js";
 import { logger } from "./util/logger.js";
@@ -50,6 +51,19 @@ async function main(): Promise<void> {
   registerAdminTools(core.tools);
   registerFlightTools(core.tools);
   registerReadPrompts(core.prompts);
+  // Register the configured agent's plugin-contributed MCP tools. Agent-mode
+  // only: a plugin tool invokes over the agent's per-plugin socket, which the
+  // fleet relay has no reach for (the tools are agentModeOnly). Best-effort at
+  // startup; an unreachable agent leaves the built-in tools intact. Dynamic
+  // refresh on plugin enable/disable (list_changed) is a follow-on.
+  if (config.mode === "agent") {
+    try {
+      const n = await registerPluginTools(core.tools, core.plane, config.nodeId ?? "agent");
+      if (n > 0) logger.info("registered plugin tools", { count: n });
+    } catch (err) {
+      logger.warn("plugin tool registration failed", { error: String(err) });
+    }
+  }
   const info = core.info();
   logger.info("ados-mcp starting", {
     version: info.version,

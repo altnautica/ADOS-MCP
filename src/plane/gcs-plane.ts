@@ -266,6 +266,15 @@ export class GcsPlane implements PlatformPlane {
     return Promise.reject(this.relayReadUnsupported("a plugin's detail"));
   }
 
+  invokePluginTool(
+    _node: NodeRef,
+    _id: string,
+    _tool: string,
+    _args: Record<string, unknown>,
+  ): Promise<unknown> {
+    return Promise.reject(this.relayReadUnsupported("plugin tool invocation"));
+  }
+
   // Node / platform administration is drone-direct only — none of these effects
   // exist in the cloud-relay command vocabulary, so fleet-mode refuses them
   // (they are also agentModeOnly, so a fleet client never sees them in tools/list).

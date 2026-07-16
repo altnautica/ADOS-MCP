@@ -34,6 +34,13 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: z.ZodType;
+  /**
+   * A raw JSON-Schema for tools/list, preferred over converting `inputSchema`.
+   * Plugin tools carry their manifest-declared JSON Schema here (a permissive
+   * `inputSchema` zod validates the call), so the MCP client sees the tool's
+   * real argument shape without a lossy JSON-Schema -> zod -> JSON-Schema trip.
+   */
+  rawInputSchema?: Record<string, unknown>;
   annotations?: ToolAnnotations;
   handler: ToolHandler;
 }

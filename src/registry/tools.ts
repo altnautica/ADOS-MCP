@@ -72,7 +72,8 @@ export class ToolRegistry {
     return {
       name: def.name,
       description: def.description,
-      inputSchema: z.toJSONSchema(def.inputSchema) as Record<string, unknown>,
+      inputSchema:
+        def.rawInputSchema ?? (z.toJSONSchema(def.inputSchema) as Record<string, unknown>),
       ...(def.annotations ? { annotations: def.annotations } : {}),
     };
   }

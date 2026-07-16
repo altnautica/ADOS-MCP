@@ -271,6 +271,18 @@ export class LanDirectPlane implements PlatformPlane {
     return this.get(`/api/plugins/${encodeURIComponent(id)}`);
   }
 
+  invokePluginTool(
+    _node: NodeRef,
+    id: string,
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    return this.post(
+      `/api/plugins/${encodeURIComponent(id)}/tools/${encodeURIComponent(tool)}/invoke`,
+      { arguments: args },
+    );
+  }
+
   queryLogs(_node: NodeRef, opts?: { level?: string; limit?: number }): Promise<unknown> {
     const params = new URLSearchParams();
     if (opts?.level) params.set("level", opts.level);

@@ -112,6 +112,14 @@ export class FakePlane implements PlatformPlane {
   async getPluginInfo(_node: NodeRef, id: string): Promise<unknown> {
     return { pluginId: id, enabled: true };
   }
+  async invokePluginTool(
+    _node: NodeRef,
+    id: string,
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    return { plugin_id: id, tool, result: { echoed: args } };
+  }
   async queryLogs(_node: NodeRef): Promise<unknown> {
     return { entries: [{ seq: 1, message: "hello" }], total: 1 };
   }

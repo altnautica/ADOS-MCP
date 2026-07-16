@@ -177,6 +177,18 @@ export interface PlatformPlane {
   /** Read one installed plugin's detail. */
   getPluginInfo(node: NodeRef, id: string): Promise<unknown>;
 
+  /**
+   * Run one of a plugin's declared MCP tools and return its result. Drone-direct
+   * only (the GCS relay has no synchronous plugin-tool invocation), so the GCS
+   * plane throws `not_supported`.
+   */
+  invokePluginTool(
+    node: NodeRef,
+    id: string,
+    tool: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown>;
+
   /** Query agent logs (optional level filter, bounded count). */
   queryLogs(node: NodeRef, opts?: { level?: string; limit?: number }): Promise<unknown>;
 

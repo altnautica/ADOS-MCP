@@ -163,11 +163,29 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
 
 const BY_TOOL = new Map<string, RouteCapEntry>(ROUTE_CAPABILITY_TABLE.map((e) => [e.tool, e]));
 
-export function routeCapFor(tool: string): RouteCapEntry | undefined {
-  return BY_TOOL.get(tool);
+// Plugin tools are discovered at runtime (their names are `${pluginId}:${tool}`,
+// never in the static table), so their route-cap entries are registered here at
+// registration time. The gate resolves them through the SAME `routeCapFor`, so a
+// plugin tool's scope is enforced by the identical authoritative path as a
+// built-in tool — a plugin tool can never be admitted ungated. A plugin-tool
+// name always contains a `:` and so can never collide with a static tool.
+const DYNAMIC_BY_TOOL = new Map<string, RouteCapEntry>();
+
+/** Register (or replace) a runtime route-cap entry for a plugin tool. */
+export function registerDynamicRouteCap(entry: RouteCapEntry): void {
+  DYNAMIC_BY_TOOL.set(entry.tool, entry);
 }
 
-/** Every tool the table knows about, for the CI completeness check. */
+/** Drop all runtime route-cap entries (used before a plugin-tool refresh). */
+export function clearDynamicRouteCaps(): void {
+  DYNAMIC_BY_TOOL.clear();
+}
+
+export function routeCapFor(tool: string): RouteCapEntry | undefined {
+  return BY_TOOL.get(tool) ?? DYNAMIC_BY_TOOL.get(tool);
+}
+
+/** Every STATIC tool the table knows about, for the CI completeness check. */
 export function knownRouteTools(): Set<string> {
   return new Set(BY_TOOL.keys());
 }
