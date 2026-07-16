@@ -43,22 +43,42 @@ Both expose the identical tools; only the reach differs.
 - **Fleet-mode is the primary pathway.** The server connects to a **Mission Control (GCS) backend** — your own local one (`--gcs local`) or the production one (`--gcs prod`) — as you, the operator, and reaches the drones that Mission Control manages. It is the AI-native interface to your fleet. (Reach limit: Mission Control tracks cloud-connected drones; a drone that is only on your LAN is reached in agent-mode.)
 - **Agent-mode is the local-first direct pathway.** The server points straight at one drone's agent on the LAN — no cloud round-trip — the shape a bench or field setup uses.
 
-## Quick start (Claude Code)
+## Set it up (Claude Code)
 
-Sign in and mint one scoped machine credential in the Mission Control MCP tab, then run the server on your machine:
+You run the server yourself, from this repo — there is no package to install. The Mission Control MCP tab has a guided wizard that walks you through these same steps and fills your real credential into the commands.
+
+**Prerequisites:** Node ≥ 20, git, [pnpm](https://pnpm.io) (`npm install -g pnpm`), and an MCP client (e.g. [Claude Code](https://docs.claude.com/claude-code)).
+
+**1. Get and build the server:**
+
+```bash
+git clone https://github.com/altnautica/ADOS-MCP.git
+cd ADOS-MCP
+./scripts/setup.sh          # installs, builds, and prints your exact add command
+# (or do it by hand: pnpm install && pnpm build)
+```
+
+**2. Mint a scoped machine credential** in the Mission Control MCP tab, then add the server to your client. The credential rides in the client's environment (`-e`), so it is not left in your shell:
 
 ```bash
 # Your whole fleet, through Mission Control (production backend):
-export ADOS_MCP_TOKEN="paste-the-machine-credential-from-the-tab"
-claude mcp add ados -- npx -y @altnautica/ados-mcp --target fleet --gcs prod
+claude mcp add ados -e ADOS_MCP_TOKEN=<paste-the-credential> -- \
+  node "$(pwd)/dist/index.js" --target fleet --gcs prod
 
 # One drone, directly on the LAN:
-claude mcp add ados-lan -- npx -y @altnautica/ados-mcp --target agent <host>
+claude mcp add ados-lan -- node "$(pwd)/dist/index.js" --target agent <host>
 ```
 
-The credential is scoped and revocable, and stored on the backend only as a hash. Revoke it in the tab to cut a server off instantly.
+The server auto-selects the **stdio** transport when a client launches it, so no `--transport` flag is needed.
 
-Then ask your client for fleet status. See [`docs/`](./docs) for the full connect recipes and the tool catalog.
+**3. Check it works** (optional, before or without a client):
+
+```bash
+ADOS_MCP_TOKEN=<the-credential> node dist/index.js --target fleet --gcs prod --verify
+# → ✓ Connected — fleet mode → https://convex.altnautica.com
+```
+
+The credential is scoped and revocable, and stored on the backend only as a hash. Revoke it in the tab to cut a server off instantly. Then ask your client for fleet status. See [`docs/`](./docs) for the tool catalog and the full architecture.
 
 ## Transports
 
