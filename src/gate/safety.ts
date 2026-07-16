@@ -15,8 +15,9 @@
 import { GateError, type ErrorReason } from "./errors.js";
 import type { SafetyClass } from "../auth/scopes.js";
 
-// Fixed uppercase phrases for the destructive tools. A phrase is a plain string,
-// never generated, so it is obvious in an audit and hard to submit by accident.
+// Fixed uppercase phrases for the built-in destructive tools. A phrase is a plain
+// string, never generated, so it is obvious in an audit and hard to submit by
+// accident.
 export const DESTRUCTIVE_PHRASES: Record<string, string> = {
   "system.reboot": "REBOOT THIS NODE",
   "system.shutdown": "SHUTDOWN THIS NODE",
@@ -24,6 +25,23 @@ export const DESTRUCTIVE_PHRASES: Record<string, string> = {
   "params.reset_all": "RESET ALL PARAMS ON THIS NODE",
   "flight.emergency_stop": "EMERGENCY STOP THIS AIRCRAFT",
 };
+
+/**
+ * The typed-confirm phrase required for a destructive tool. Built-in tools carry
+ * a fixed hand-written phrase (above). A plugin tool (its name is always
+ * `${pluginId}:${tool}`, so it contains a ":") is floored to destructive at
+ * registration when the plugin holds a destructive-class capability; it has no
+ * hand-written phrase, so a stable one is synthesized from its name so the tool is
+ * still invokable (with the same phrase + operator signed-confirm requirement as a
+ * built-in destructive tool), never silently un-invokable. A built-in destructive
+ * tool with no phrase remains a build error (returns undefined → refusal).
+ */
+export function destructivePhraseFor(tool: string): string | undefined {
+  const fixed = DESTRUCTIVE_PHRASES[tool];
+  if (fixed) return fixed;
+  if (tool.includes(":")) return `CONFIRM ${tool.toUpperCase()}`;
+  return undefined;
+}
 
 export interface OperatorPresence {
   /** Presence for a node: present flag + age of the last heartbeat in ms. */
@@ -88,10 +106,11 @@ export class SafetyGate {
   }
 
   private destructiveGate(ctx: SafetyContext): SafetyDecision {
-    const phrase = DESTRUCTIVE_PHRASES[ctx.tool];
+    const phrase = destructivePhraseFor(ctx.tool);
     if (!phrase) {
-      // A destructive tool with no registered phrase is a build error, surfaced
-      // as a refusal rather than an accidental allow.
+      // A built-in destructive tool with no registered phrase is a build error,
+      // surfaced as a refusal rather than an accidental allow. (Plugin tools
+      // always get a synthesized phrase, so this only ever fires for a built-in.)
       throw new GateError("not_supported", `${ctx.tool} has no confirm phrase configured`);
     }
     // The typed phrase is public, so a client can produce it on its own; the

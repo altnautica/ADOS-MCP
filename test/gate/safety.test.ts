@@ -4,6 +4,7 @@ import {
   NO_OPERATOR_PRESENT,
   NO_SIGNED_CONFIRM,
   DESTRUCTIVE_PHRASES,
+  destructivePhraseFor,
   type OperatorPresence,
   type SafetyContext,
 } from "../../src/gate/safety.js";
@@ -102,6 +103,27 @@ describe("SafetyGate", () => {
     } catch (e) {
       expect((e as GateError).reason).toBe("confirm_required");
     }
+  });
+
+  it("synthesizes a confirm phrase for a destructive plugin tool (CFIX-2)", () => {
+    // A built-in tool with no phrase has none (build error → refusal).
+    expect(destructivePhraseFor("some.builtin")).toBeUndefined();
+    // A plugin tool (name contains ":") gets a stable synthesized phrase.
+    const tool = "com.x.p:wipe";
+    const phrase = destructivePhraseFor(tool);
+    expect(phrase).toBe("CONFIRM COM.X.P:WIPE");
+
+    // Without the phrase it is confirm_required (not not_supported — it IS invokable).
+    try {
+      gate.evaluate(ctx({ tool, safetyClass: "destructive", args: { confirm: "nope" } }));
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect((e as GateError).reason).toBe("confirm_required");
+    }
+    // Phrase + sim → confirmed (same posture as a built-in destructive tool).
+    expect(
+      gate.evaluate(ctx({ tool, safetyClass: "destructive", sim: true, args: { confirm: phrase } })).decision,
+    ).toBe("confirmed");
   });
 
   it("admits flight with a fresh operator-present signal", () => {
