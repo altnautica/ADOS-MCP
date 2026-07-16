@@ -19,7 +19,12 @@ import { isPrivateOrLocalHost } from "../util/cidr.js";
 const FLEET_REVERIFY_MS = 60_000;
 
 export async function startStdio(core: ServerCore, config: ServerConfig): Promise<void> {
-  const localTarget = config.mode === "agent" && isPrivateOrLocalHost(config.agentHost);
+  // local-fleet is always on-box over stdio: there is no single host to classify,
+  // and every per-node call is authorized by that node's own pairing key from the
+  // fleet file. agent-mode is on-box for a LAN target; a public host needs a token.
+  const localTarget =
+    config.mode === "local-fleet" ||
+    (config.mode === "agent" && isPrivateOrLocalHost(config.agentHost));
   if (config.launchToken) {
     const principal = await core.authenticateBearer(config.launchToken);
     core.setFixedPrincipal(principal);

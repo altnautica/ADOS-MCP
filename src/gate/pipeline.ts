@@ -51,6 +51,9 @@ export interface PipelineConfig {
   nodeId?: string;
   /** The operator machine credential the server was launched with (fleet-mode). */
   credential?: string;
+  /** The device ids in the local-fleet file (local-fleet mode). A target must be
+   * one of these; the operator owns every node in their own fleet file. */
+  localFleetNodes?: string[];
   /** True once the raw MAVLink proxy enforce flag is confirmed on. */
   flightEnforced: boolean;
   /** True when the bound target runs in simulation (SITL). */
@@ -166,7 +169,8 @@ export class GatePipeline {
     classifyIssuer(claims.iss);
     return {
       claims,
-      plane: this.deps.config.planeMode === "agent" ? "lan_direct" : "cloud_relay",
+      // agent + local-fleet are both LAN-direct; only fleet-mode is the cloud relay.
+      plane: this.deps.config.planeMode === "fleet" ? "cloud_relay" : "lan_direct",
       onBox: false,
       sourceIp,
     };
@@ -474,6 +478,23 @@ export class GatePipeline {
         throw new GateError("node_not_allowed", `agent-mode targets ${self}, not ${requested}`);
       }
       return self;
+    }
+    // local-fleet: the operator owns every node in their own fleet file, so the
+    // target is validated against the file (not a token claim). A single-node
+    // fleet needs no explicit node; a multi-node fleet requires one.
+    if (this.deps.config.planeMode === "local-fleet") {
+      const nodes = this.deps.config.localFleetNodes ?? [];
+      if (!requested) {
+        if (nodes.length === 1) return nodes[0]!;
+        throw new GateError(
+          "node_required",
+          "specify a node; call fleet.list_nodes to see this server's LAN fleet",
+        );
+      }
+      if (!nodes.includes(requested)) {
+        throw new GateError("node_not_allowed", `node '${requested}' is not in the local fleet`);
+      }
+      return requested;
     }
     // fleet-mode. Targeting is enforced from the verified token claim, never the
     // request body, and it fails CLOSED: an empty allowedNodes does not mean "any

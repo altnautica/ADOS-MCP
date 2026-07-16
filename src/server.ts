@@ -28,6 +28,7 @@ import { makeResolver, type SecretResolver } from "./auth/issuers.js";
 import { DenylistRevocation, NO_REVOCATION, type RevocationSource } from "./auth/revocation.js";
 import { StderrAuditSink, MultiAuditSink, type AuditSink } from "./audit/sink.js";
 import { LanDirectPlane } from "./plane/lan-direct.js";
+import { LocalFleetPlane } from "./plane/local-fleet.js";
 import { GcsPlane } from "./plane/gcs-plane.js";
 import type { PlaneHealth, PlatformPlane } from "./plane/platform-plane.js";
 import type { ServerConfig } from "./config.js";
@@ -75,7 +76,9 @@ export class ServerCore {
             host: config.agentHost,
             ...(config.agentApiKey ? { apiKey: config.agentApiKey } : {}),
           })
-        : new GcsPlane({
+        : config.mode === "local-fleet"
+          ? new LocalFleetPlane(config.fleetNodes ?? [])
+          : new GcsPlane({
             ...(config.convexUrl ? { convexUrl: config.convexUrl } : {}),
             ...(config.credential ? { credential: config.credential } : {}),
             ...(config.mqttUrl ? { mqttUrl: config.mqttUrl } : {}),
@@ -94,6 +97,7 @@ export class ServerCore {
       planeMode: config.mode,
       ...(config.nodeId ? { nodeId: config.nodeId } : {}),
       ...(config.credential ? { credential: config.credential } : {}),
+      ...(config.fleetNodes ? { localFleetNodes: config.fleetNodes.map((n) => n.deviceId) } : {}),
       flightEnforced: config.flightEnforced,
       sim: config.sim,
     };

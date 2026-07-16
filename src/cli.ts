@@ -1,12 +1,15 @@
-// Command-line parsing. Uses Node's built-in parseArgs (no dependency). The two
-// launch shapes are `--target agent <host>` (agent-mode, one node on the LAN)
-// and `--target fleet` (fleet-mode, the hosted fleet endpoint).
+// Command-line parsing. Uses Node's built-in parseArgs (no dependency). The launch
+// shapes are `--target agent <host>` (one LAN drone), `--target local-fleet
+// <fleet.json>` (many LAN drones, no cloud), and `--target fleet` (the hosted
+// cloud relay).
 
 import { parseArgs } from "node:util";
 
 export interface CliArgs {
-  target: "agent" | "fleet";
+  target: "agent" | "fleet" | "local-fleet";
   host?: string;
+  /** The local-fleet file path (positional after `--target local-fleet`). */
+  fleetFile?: string;
   token?: string;
   transport: "auto" | "stdio" | "http" | "unix";
   httpPort?: number;
@@ -30,11 +33,13 @@ export interface CliArgs {
 const USAGE = `ados-mcp - Model Context Protocol server for the ADOS drone platform
 
 Usage:
-  ados-mcp --target fleet --gcs prod [options]   Interface with Mission Control (the GCS)
-  ados-mcp --target agent <host> [options]       Connect to one drone on the LAN
+  ados-mcp --target agent <host> [options]              Connect to one drone on the LAN (local-first)
+  ados-mcp --target local-fleet <fleet.json> [options]  Connect to many LAN drones, no cloud
+  ados-mcp --target fleet --gcs prod [options]          Reach your fleet remotely via Mission Control (cloud)
 
 Options:
-  --target <agent|fleet>   Deployment mode (required)
+  --target <agent|local-fleet|fleet>   Deployment mode (required)
+  --fleet-file <path>      The local-fleet file (default: ~/.ados/mcp/fleet.json; local-fleet)
   --gcs <local|prod|url>   The GCS Convex backend to reach (fleet-mode)
   --token <token>          The bearer for the launch principal: the operator
                            machine credential (fleet-mode) or an agent token
@@ -70,6 +75,7 @@ export function parseCli(argv: string[]): CliArgs {
     allowPositionals: true,
     options: {
       target: { type: "string" },
+      "fleet-file": { type: "string" },
       gcs: { type: "string" },
       token: { type: "string" },
       transport: { type: "string", default: "auto" },
@@ -88,27 +94,32 @@ export function parseCli(argv: string[]): CliArgs {
     },
   });
 
-  const target = values.target as "agent" | "fleet" | undefined;
+  const target = values.target as CliArgs["target"] | undefined;
   const transport = (values.transport as string) ?? "auto";
   const validTransports = ["auto", "stdio", "http", "unix"];
   if (!values.help && !values.version) {
-    if (target !== "agent" && target !== "fleet") {
-      throw new Error("--target must be 'agent' or 'fleet'");
+    if (target !== "agent" && target !== "fleet" && target !== "local-fleet") {
+      throw new Error("--target must be 'agent', 'local-fleet', or 'fleet'");
     }
     if (!validTransports.includes(transport)) {
       throw new Error(`--transport must be one of ${validTransports.join(", ")}`);
     }
   }
 
-  // In agent-mode the host may be given positionally after `agent` or via --host.
+  // agent: host positionally after `agent` (or --host). local-fleet: the fleet
+  // file positionally after `local-fleet` (or --fleet-file).
   let host: string | undefined;
+  let fleetFile: string | undefined;
   if (target === "agent") {
     host = positionals[0] ?? undefined;
+  } else if (target === "local-fleet") {
+    fleetFile = (values["fleet-file"] as string | undefined) ?? positionals[0] ?? undefined;
   }
 
   return {
-    target: (target ?? "agent") as "agent" | "fleet",
+    target: (target ?? "agent") as CliArgs["target"],
     host,
+    fleetFile,
     token: values.token as string | undefined,
     transport: transport as CliArgs["transport"],
     httpPort: values["http-port"] ? Number(values["http-port"]) : undefined,

@@ -11,7 +11,9 @@
 // naming the reach that does serve it — an honest capability limit, never a stub
 // nor a fabricated reading.
 
-export type PlaneMode = "agent" | "fleet";
+// "agent" = one LAN drone (LanDirectPlane); "local-fleet" = many LAN drones
+// (LocalFleetPlane, no cloud); "fleet" = the hosted cloud relay (GcsPlane).
+export type PlaneMode = "agent" | "fleet" | "local-fleet";
 
 /** Targeting primitive. In agent-mode it resolves to the one bound host; in
  * fleet-mode it names a device. A bare string is a hostname or deviceId. */

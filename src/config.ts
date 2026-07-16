@@ -3,7 +3,7 @@
 // the plane targets. No secret is embedded; the agent verify key derives from the
 // pairing key at request time, the local dev secret comes from the environment.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CliArgs } from "./cli.js";
@@ -44,6 +44,86 @@ function pairingPath(): string {
   return process.env.ADOS_PAIRING_PATH ?? "/etc/ados/pairing.json";
 }
 
+/** The default local-fleet file: the operator exports it from the GCS MCP tab. */
+export function defaultFleetPath(): string {
+  return process.env.ADOS_MCP_FLEET_PATH ?? join(homedir(), ".ados", "mcp", "fleet.json");
+}
+
+/** One LAN drone in the local-fleet file: reachable host + its own pairing key. */
+export interface FleetNode {
+  deviceId: string;
+  name?: string;
+  /** Reachable base (e.g. http://drone.local:8080); LanDirectPlane normalizes it. */
+  host: string;
+  /** This node's pairing api key, sent as X-ADOS-Key. */
+  apiKey: string;
+  profile?: string;
+}
+
+/**
+ * Read + validate the local-fleet file `{ version, nodes: [...] }`. Each node needs
+ * a deviceId, host, and apiKey; malformed entries are skipped and an empty result
+ * throws (a fleet with no reachable nodes is a config error, not a silent empty
+ * fleet). Warns when the file is group/world-readable — it holds pairing keys.
+ */
+export function readFleetFile(path: string): FleetNode[] {
+  let raw: string;
+  try {
+    const st = statSync(path);
+    if ((st.mode & 0o077) !== 0) {
+      logger.warn(
+        `fleet file ${path} is group/world-readable; it holds pairing keys — restrict it (chmod 600)`,
+      );
+    }
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    throw new Error(`cannot read local-fleet file at ${path}: ${(err as Error).message}`, {
+      cause: err,
+    });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`local-fleet file at ${path} is not valid JSON`);
+  }
+  const nodesRaw =
+    parsed && typeof parsed === "object" ? (parsed as { nodes?: unknown }).nodes : undefined;
+  if (!Array.isArray(nodesRaw)) {
+    throw new Error(`local-fleet file at ${path} must have a "nodes" array`);
+  }
+  const nodes: FleetNode[] = [];
+  const seen = new Set<string>();
+  for (const n of nodesRaw) {
+    if (!n || typeof n !== "object") continue;
+    const o = n as Record<string, unknown>;
+    if (
+      typeof o.deviceId === "string" &&
+      typeof o.host === "string" &&
+      typeof o.apiKey === "string" &&
+      o.deviceId &&
+      o.host &&
+      o.apiKey &&
+      !seen.has(o.deviceId)
+    ) {
+      seen.add(o.deviceId);
+      nodes.push({
+        deviceId: o.deviceId,
+        host: o.host,
+        apiKey: o.apiKey,
+        ...(typeof o.name === "string" ? { name: o.name } : {}),
+        ...(typeof o.profile === "string" ? { profile: o.profile } : {}),
+      });
+    }
+  }
+  if (nodes.length === 0) {
+    throw new Error(
+      `local-fleet file at ${path} has no valid nodes (each needs deviceId, host, apiKey)`,
+    );
+  }
+  return nodes;
+}
+
 function revokedListPath(): string {
   return process.env.ADOS_MCP_REVOKED_PATH ?? "/etc/ados/mcp/revoked.json";
 }
@@ -56,6 +136,9 @@ export interface ServerConfig {
   agentApiKey?: string;
   pairingKey?: string;
   revocationSalt?: Uint8Array;
+  // local-fleet mode (many LAN drones, no cloud)
+  fleetFilePath?: string;
+  fleetNodes?: FleetNode[];
   // fleet-mode (the GCS-interface pathway)
   convexUrl?: string;
   /** The operator machine credential that reaches the GCS backend (fleet-mode). */
@@ -145,10 +228,19 @@ export function resolveConfig(args: CliArgs): ServerConfig {
   if (resolvedTransport === "stdio") transports.add("stdio");
   else if (resolvedTransport === "http") {
     transports.add("http");
-    if (mode === "agent") transports.add("unix");
+    if (mode === "agent" || mode === "local-fleet") transports.add("unix");
   } else if (resolvedTransport === "unix") transports.add("unix");
 
   const pairing = mode === "agent" ? readPairing() : {};
+
+  // local-fleet: read the operator-exported fleet file (each node carries its own
+  // pairing key). The file path is the positional after `--target local-fleet`, or
+  // --fleet-file, or the default under ~/.ados/mcp/.
+  const fleetFilePath =
+    mode === "local-fleet"
+      ? (args.fleetFile ?? process.env.ADOS_MCP_FLEET_PATH ?? defaultFleetPath())
+      : undefined;
+  const fleetNodes = fleetFilePath ? readFleetFile(fleetFilePath) : undefined;
 
   const launchToken = args.token ?? process.env.ADOS_MCP_TOKEN;
 
@@ -156,6 +248,8 @@ export function resolveConfig(args: CliArgs): ServerConfig {
     mode,
     nodeId: args.nodeId ?? process.env.ADOS_NODE_ID,
     agentHost: args.host ?? process.env.ADOS_AGENT_HOST ?? "127.0.0.1",
+    ...(fleetFilePath ? { fleetFilePath } : {}),
+    ...(fleetNodes ? { fleetNodes } : {}),
     agentApiKey: pairing.apiKey ?? process.env.ADOS_MCP_AGENT_KEY,
     pairingKey: pairing.apiKey ?? process.env.ADOS_MCP_PAIRING_KEY,
     convexUrl: resolveGcsUrl(args.gcs) ?? args.convexUrl ?? process.env.ADOS_CONVEX_URL,

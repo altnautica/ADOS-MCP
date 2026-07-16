@@ -126,14 +126,16 @@ async function main(): Promise<void> {
 async function runVerify(core: ServerCore): Promise<void> {
   const info = core.info();
   const h = await core.healthz();
-  const where =
-    info.mode === "fleet"
-      ? `fleet mode → ${h.plane.target ?? info.target}`
-      : `agent mode → ${info.target}`;
+  const label =
+    info.mode === "fleet" ? "fleet mode" : info.mode === "local-fleet" ? "local fleet" : "agent mode";
+  const where = `${label} → ${h.plane.target ?? info.target}`;
   if (h.ok) {
     process.stdout.write(`✓ Connected — ${where}\n`);
     if (info.mode === "fleet") {
       process.stdout.write(`  Your machine credential was verified against Mission Control.\n`);
+    } else if (info.mode === "local-fleet" && h.plane.detail) {
+      // e.g. "2/3 nodes reachable" — surface partial reachability even on ok.
+      process.stdout.write(`  ${h.plane.detail}\n`);
     }
   } else {
     process.stdout.write(`✗ Not connected — ${where}\n`);
