@@ -92,6 +92,22 @@ describe("toolsFromDetail", () => {
     expect(toolsFromDetail("p", null)).toEqual([]);
     expect(toolsFromDetail("p", detail({ manifest: {} }))).toEqual([]);
   });
+
+  it("drops a tool whose name contains ':' and bounds the description (CFIX-6/7)", () => {
+    const tools = toolsFromDetail("com.x.p", {
+      granted_capabilities: ["mcp.expose"],
+      manifest: {
+        mcp: {
+          tools: [
+            { name: "ns:collide", safety_class: "read", half: "agent" }, // rejected
+            { name: "ok", title: "T".repeat(4000), safety_class: "read", half: "agent" },
+          ],
+        },
+      },
+    });
+    expect(tools.map((t) => t.toolName)).toEqual(["ok"]);
+    expect(tools[0].description.length).toBeLessThanOrEqual(513); // 512 + ellipsis
+  });
 });
 
 describe("registerPluginTools", () => {

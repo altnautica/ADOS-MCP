@@ -18,10 +18,18 @@ import {
 } from "../auth/scopes.js";
 import type { SafetyClass, ScopeGroup } from "../auth/scopes.js";
 import type { NodeRef, PlatformPlane } from "../plane/platform-plane.js";
+import { logger } from "../util/logger.js";
 import type { ToolRegistry } from "./tools.js";
 
 /** The capability id carried for audit on a plugin-tool route-cap entry. */
 const PLUGIN_TOOL_CAPABILITY = "plugin.tool.invoke";
+
+/** A plugin's description and input schema are echoed to the client verbatim, so
+ * they are bounded: an oversized description is truncated and an oversized schema
+ * is dropped (the permissive validator still accepts the call; only the ADVERTISED
+ * schema is elided). Bounds a prompt-injection / oversized-payload surface. */
+const MAX_TOOL_DESCRIPTION_CHARS = 512;
+const MAX_INPUT_SCHEMA_BYTES = 16 * 1024;
 
 /**
  * Map a plugin tool's declared safety class to the connector scope group + class.
@@ -105,11 +113,27 @@ export function toolsFromDetail(pluginId: string, detail: unknown): DiscoveredPl
     if (t.half !== "agent") continue;
     const name = asString(t.name);
     if (!name) continue;
+    // The namespaced id is `${pluginId}:${toolName}`; a ":" in the tool name would
+    // make that mapping non-injective (a:b + c vs a + b:c), so reject it.
+    if (name.includes(":")) {
+      logger.warn("dropping plugin tool with ':' in its name", { pluginId, name });
+      continue;
+    }
+    const rawDescription = asString(t.title) ?? asString(t.description) ?? `Plugin tool ${name}`;
+    const description =
+      rawDescription.length > MAX_TOOL_DESCRIPTION_CHARS
+        ? `${rawDescription.slice(0, MAX_TOOL_DESCRIPTION_CHARS)}…`
+        : rawDescription;
+    let inputSchema = asRecord(t.inputSchema);
+    if (inputSchema && JSON.stringify(inputSchema).length > MAX_INPUT_SCHEMA_BYTES) {
+      logger.warn("dropping oversized plugin tool input schema", { pluginId, name });
+      inputSchema = undefined;
+    }
     out.push({
       pluginId,
       toolName: name,
-      description: asString(t.title) ?? asString(t.description) ?? `Plugin tool ${name}`,
-      inputSchema: asRecord(t.inputSchema),
+      description,
+      inputSchema,
       safetyClassRaw: t.safety_class,
       grantedCapabilities,
     });
@@ -189,7 +213,18 @@ export async function registerPluginTools(
     } catch {
       continue;
     }
-    for (const tool of toolsFromDetail(pluginId, detail)) {
+    const discovered = toolsFromDetail(pluginId, detail);
+    if (discovered.length === 0) {
+      // A plugin that carries mcp.expose but yields no agent-half tools (gcs-half
+      // only, or none) is a no-op here; surface it at debug so the gap is visible.
+      const d = asRecord(detail);
+      const granted = d && Array.isArray(d.granted_capabilities) ? d.granted_capabilities : [];
+      if (granted.includes("mcp.expose")) {
+        logger.debug("plugin exposes MCP but contributed no agent-half tools", { pluginId });
+      }
+      continue;
+    }
+    for (const tool of discovered) {
       const nsName = `${tool.pluginId}:${tool.toolName}`;
       if (reg.get(nsName)) continue; // already registered this pass
       registerOne(reg, tool);
