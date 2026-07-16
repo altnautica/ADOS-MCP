@@ -46,6 +46,13 @@ async function main(): Promise<void> {
     );
   }
   const core = new ServerCore(config, { extraAuditSinks: auditSinks });
+
+  // --verify: connect, check auth + reachability, print the result, exit. No server.
+  if (args.verify) {
+    await runVerify(core);
+    return;
+  }
+
   registerReadTools(core.tools, config.auditPath);
   registerReadResources(core.resources);
   registerAdminTools(core.tools);
@@ -109,6 +116,31 @@ async function main(): Promise<void> {
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
+}
+
+/**
+ * `--verify`: probe the bound plane's health, print a clear ✓/✗ + reason, and
+ * exit 0 (ok) / 1 (not ok). A deterministic "does my setup work?" check the user
+ * (and the GCS setup wizard) can run without an MCP client in the loop.
+ */
+async function runVerify(core: ServerCore): Promise<void> {
+  const info = core.info();
+  const h = await core.healthz();
+  const where =
+    info.mode === "fleet"
+      ? `fleet mode → ${h.plane.target ?? info.target}`
+      : `agent mode → ${info.target}`;
+  if (h.ok) {
+    process.stdout.write(`✓ Connected — ${where}\n`);
+    if (info.mode === "fleet") {
+      process.stdout.write(`  Your machine credential was verified against Mission Control.\n`);
+    }
+  } else {
+    process.stdout.write(`✗ Not connected — ${where}\n`);
+    process.stdout.write(`  ${h.plane.detail ?? "the target is unreachable"}\n`);
+  }
+  await core.close();
+  process.exit(h.ok ? 0 : 1);
 }
 
 main().catch((err) => {

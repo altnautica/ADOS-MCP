@@ -21,6 +21,8 @@ export interface CliArgs {
   sim: boolean;
   flightEnforced: boolean;
   mdns: boolean;
+  /** Connect, verify auth/reachability, print the result, and exit (no server). */
+  verify: boolean;
   help: boolean;
   version: boolean;
 }
@@ -46,6 +48,8 @@ Options:
   --sim                    Target is running in simulation (SITL)
   --flight-enforced        The MAVLink proxy enforce flag is confirmed on
   --no-mdns                Disable mDNS advertisement (agent-mode)
+  --verify                 Connect, check auth + reachability, print the result,
+                           and exit 0 (ok) or 1 (not ok). Does not start a server.
   --help                   Show this help
   --version                Show the version
 
@@ -78,6 +82,7 @@ export function parseCli(argv: string[]): CliArgs {
       sim: { type: "boolean", default: false },
       "flight-enforced": { type: "boolean", default: false },
       "no-mdns": { type: "boolean", default: false },
+      verify: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
       version: { type: "boolean", default: false },
     },
@@ -116,6 +121,7 @@ export function parseCli(argv: string[]): CliArgs {
     sim: Boolean(values.sim),
     flightEnforced: Boolean(values["flight-enforced"]),
     mdns: !values["no-mdns"],
+    verify: Boolean(values.verify),
     help: Boolean(values.help),
     version: Boolean(values.version),
   };
