@@ -36,7 +36,7 @@ You run the server yourself, on your own machine. **Local-first: reach your dron
 | Mode | Command | Reaches | Needs |
 |------|---------|---------|-------|
 | **Agent** (default) | `--target agent <host>` | one drone on your LAN | the drone's pairing key |
-| **Local fleet** | `--target local-fleet <fleet.json>` | many drones on your LAN | a fleet file (each drone's host + key) |
+| **Local fleet** | `--target local-fleet` | many drones on your LAN | the fleet in one env var (or a file), each drone's host + key; `--discover` auto-adopts new unpaired drones |
 | **Fleet** (cloud, opt-in) | `--target fleet --gcs prod` | your fleet from anywhere, via Mission Control | a Mission Control sign-in + a minted credential |
 
 All three expose the identical tools; only the reach differs.
@@ -66,8 +66,11 @@ cd ADOS-MCP
 claude mcp add ados -e ADOS_MCP_AGENT_KEY=<pairing-key> -- \
   node "$(pwd)/dist/index.js" --target agent <host>
 
-# Many drones on the LAN (keys ride in the fleet file):
-claude mcp add ados -- node "$(pwd)/dist/index.js" --target local-fleet ~/.ados/mcp/fleet.json
+# Your whole LAN fleet in ONE command (the MCP tab's "control all my drones" wizard
+# generates this — every drone's host + key rides in the env, no file):
+claude mcp add ados -e ADOS_MCP_FLEET=<blob> -- node "$(pwd)/dist/index.js" --target local-fleet
+# (or point at a fleet file: --target local-fleet ~/.ados/mcp/fleet.json)
+# Add --discover to also auto-adopt new UNPAIRED drones on your LAN.
 ```
 
 Or, to reach your fleet from anywhere through the cloud (opt-in), mint a credential in the Mission Control MCP tab:

@@ -63,6 +63,8 @@ Options:
   --version                Show the version
 
 Environment:
+  ADOS_MCP_FLEET           The whole local-fleet inline as base64 (host+key per drone)
+  ADOS_MCP_DISCOVER        Set to 1 to auto-adopt unpaired LAN drones (local-fleet)
   ADOS_MCP_TOKEN           The bearer (the operator machine credential in fleet-mode)
   ADOS_CONVEX_URL          Convex url (alternative to --convex-url / --gcs)
   ADOS_MCP_AUDIT_PATH      Local audit file (alternative to --audit-path)
