@@ -9,6 +9,7 @@ import { ServerCore } from "./server.js";
 import { startStdio } from "./transport/stdio.js";
 import { startHttpServer, startUnixServer } from "./transport/http.js";
 import { advertiseMdns, type MdnsHandle } from "./discovery/mdns.js";
+import { discoverFleet, ownerId } from "./discovery/browse.js";
 import { FileAuditSink } from "./audit/file-sink.js";
 import { ConvexAuditSink } from "./audit/convex-sink.js";
 import type { AuditSink } from "./audit/sink.js";
@@ -35,6 +36,22 @@ async function main(): Promise<void> {
   }
 
   const config = resolveConfig(args);
+
+  // local-fleet + --discover: browse the LAN and auto-adopt UNPAIRED drones, then
+  // merge them into the fleet BEFORE the plane is built (so the plane, the pipeline
+  // node list, and --verify all see the full set). Best-effort; never fatal.
+  if (config.discover) {
+    const additions = await discoverFleet({
+      known: config.fleetNodes ?? [],
+      userId: ownerId(),
+      adoptUnpaired: true,
+    });
+    if (additions.length) {
+      config.fleetNodes = [...(config.fleetNodes ?? []), ...additions];
+      logger.info(`auto-discovery adopted ${additions.length} new drone(s) on the LAN`);
+    }
+  }
+
   // The durable audit store is a local file on the operator's machine, fanned in
   // alongside the always-available stderr sink. In fleet-mode, a best-effort cloud
   // mirror also pushes a lean copy to Mission Control so the MCP tab shows one

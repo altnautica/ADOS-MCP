@@ -24,6 +24,8 @@ export interface CliArgs {
   sim: boolean;
   flightEnforced: boolean;
   mdns: boolean;
+  /** local-fleet: browse the LAN and auto-adopt UNPAIRED drones (opt-in). */
+  discover: boolean;
   /** Connect, verify auth/reachability, print the result, and exit (no server). */
   verify: boolean;
   help: boolean;
@@ -53,6 +55,8 @@ Options:
   --sim                    Target is running in simulation (SITL)
   --flight-enforced        The MAVLink proxy enforce flag is confirmed on
   --no-mdns                Disable mDNS advertisement (agent-mode)
+  --discover               local-fleet: browse the LAN and auto-adopt UNPAIRED
+                           drones (self-claims their key). Off by default.
   --verify                 Connect, check auth + reachability, print the result,
                            and exit 0 (ok) or 1 (not ok). Does not start a server.
   --help                   Show this help
@@ -88,6 +92,7 @@ export function parseCli(argv: string[]): CliArgs {
       sim: { type: "boolean", default: false },
       "flight-enforced": { type: "boolean", default: false },
       "no-mdns": { type: "boolean", default: false },
+      discover: { type: "boolean", default: false },
       verify: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
       version: { type: "boolean", default: false },
@@ -132,6 +137,7 @@ export function parseCli(argv: string[]): CliArgs {
     sim: Boolean(values.sim),
     flightEnforced: Boolean(values["flight-enforced"]),
     mdns: !values["no-mdns"],
+    discover: Boolean(values.discover),
     verify: Boolean(values.verify),
     help: Boolean(values.help),
     version: Boolean(values.version),
