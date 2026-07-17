@@ -61,36 +61,16 @@ export interface FleetNode {
 }
 
 /**
- * Read + validate the local-fleet file `{ version, nodes: [...] }`. Each node needs
- * a deviceId, host, and apiKey; malformed entries are skipped and an empty result
- * throws (a fleet with no reachable nodes is a config error, not a silent empty
- * fleet). Warns when the file is group/world-readable — it holds pairing keys.
+ * Validate a parsed `{ version, nodes: [...] }` fleet document into FleetNode[].
+ * Each node needs a deviceId, host, and apiKey; malformed entries are skipped and
+ * an empty result throws (a fleet with no reachable nodes is a config error, not a
+ * silent empty fleet). `source` names the origin in error messages.
  */
-export function readFleetFile(path: string): FleetNode[] {
-  let raw: string;
-  try {
-    const st = statSync(path);
-    if ((st.mode & 0o077) !== 0) {
-      logger.warn(
-        `fleet file ${path} is group/world-readable; it holds pairing keys — restrict it (chmod 600)`,
-      );
-    }
-    raw = readFileSync(path, "utf8");
-  } catch (err) {
-    throw new Error(`cannot read local-fleet file at ${path}: ${(err as Error).message}`, {
-      cause: err,
-    });
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error(`local-fleet file at ${path} is not valid JSON`);
-  }
+export function parseFleetNodes(parsed: unknown, source: string): FleetNode[] {
   const nodesRaw =
     parsed && typeof parsed === "object" ? (parsed as { nodes?: unknown }).nodes : undefined;
   if (!Array.isArray(nodesRaw)) {
-    throw new Error(`local-fleet file at ${path} must have a "nodes" array`);
+    throw new Error(`${source} must have a "nodes" array`);
   }
   const nodes: FleetNode[] = [];
   const seen = new Set<string>();
@@ -117,11 +97,60 @@ export function readFleetFile(path: string): FleetNode[] {
     }
   }
   if (nodes.length === 0) {
-    throw new Error(
-      `local-fleet file at ${path} has no valid nodes (each needs deviceId, host, apiKey)`,
-    );
+    throw new Error(`${source} has no valid nodes (each needs deviceId, host, apiKey)`);
   }
   return nodes;
+}
+
+/**
+ * Read + validate the local-fleet FILE `{ version, nodes: [...] }`. Warns when the
+ * file is group/world-readable — it holds pairing keys.
+ */
+export function readFleetFile(path: string): FleetNode[] {
+  let raw: string;
+  try {
+    const st = statSync(path);
+    if ((st.mode & 0o077) !== 0) {
+      logger.warn(
+        `fleet file ${path} is group/world-readable; it holds pairing keys — restrict it (chmod 600)`,
+      );
+    }
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    throw new Error(`cannot read local-fleet file at ${path}: ${(err as Error).message}`, {
+      cause: err,
+    });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`local-fleet file at ${path} is not valid JSON`);
+  }
+  return parseFleetNodes(parsed, `local-fleet file at ${path}`);
+}
+
+/**
+ * Read the local-fleet INLINE from the `ADOS_MCP_FLEET` env — a base64 of the same
+ * `{ version, nodes: [...] }` JSON the file holds. This is the "control all my
+ * drones with one command, no file" hand-off: the GCS wizard bakes the whole fleet
+ * (each drone's host + pairing key) into the client's launch env, exactly as the
+ * single-drone recipe bakes one key into `ADOS_MCP_AGENT_KEY`.
+ */
+export function readFleetFromEnv(b64: string): FleetNode[] {
+  let json: string;
+  try {
+    json = Buffer.from(b64, "base64").toString("utf8");
+  } catch (err) {
+    throw new Error(`ADOS_MCP_FLEET is not valid base64: ${(err as Error).message}`, { cause: err });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error("ADOS_MCP_FLEET does not decode to valid JSON");
+  }
+  return parseFleetNodes(parsed, "ADOS_MCP_FLEET");
 }
 
 function revokedListPath(): string {
@@ -233,14 +262,22 @@ export function resolveConfig(args: CliArgs): ServerConfig {
 
   const pairing = mode === "agent" ? readPairing() : {};
 
-  // local-fleet: read the operator-exported fleet file (each node carries its own
-  // pairing key). The file path is the positional after `--target local-fleet`, or
-  // --fleet-file, or the default under ~/.ados/mcp/.
-  const fleetFilePath =
-    mode === "local-fleet"
-      ? (args.fleetFile ?? process.env.ADOS_MCP_FLEET_PATH ?? defaultFleetPath())
-      : undefined;
-  const fleetNodes = fleetFilePath ? readFleetFile(fleetFilePath) : undefined;
+  // local-fleet: the operator-exported fleet (each node carries its own pairing
+  // key). Prefer it INLINE from the ADOS_MCP_FLEET env (the "control all my drones
+  // in one command, no file" hand-off the GCS wizard bakes into the launch env);
+  // else read the fleet FILE (positional after `--target local-fleet`, --fleet-file,
+  // or the default under ~/.ados/mcp/).
+  let fleetFilePath: string | undefined;
+  let fleetNodes: FleetNode[] | undefined;
+  if (mode === "local-fleet") {
+    const inline = process.env.ADOS_MCP_FLEET;
+    if (inline) {
+      fleetNodes = readFleetFromEnv(inline);
+    } else {
+      fleetFilePath = args.fleetFile ?? process.env.ADOS_MCP_FLEET_PATH ?? defaultFleetPath();
+      fleetNodes = readFleetFile(fleetFilePath);
+    }
+  }
 
   const launchToken = args.token ?? process.env.ADOS_MCP_TOKEN;
 

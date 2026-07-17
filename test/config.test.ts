@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveTransport, readFleetFile } from "../src/config.js";
+import { resolveTransport, readFleetFile, readFleetFromEnv } from "../src/config.js";
 
 describe("resolveTransport", () => {
   it("honours an explicit transport regardless of mode or launch context", () => {
@@ -94,5 +94,36 @@ describe("readFleetFile", () => {
   it("cleanup", () => {
     rmSync(dir, { recursive: true, force: true });
     expect(true).toBe(true);
+  });
+});
+
+describe("readFleetFromEnv (the one-command, no-file hand-off)", () => {
+  const b64 = (obj: unknown): string => Buffer.from(JSON.stringify(obj), "utf8").toString("base64");
+
+  it("decodes a base64 fleet with each drone's host + key", () => {
+    const nodes = readFleetFromEnv(
+      b64({
+        version: 1,
+        nodes: [
+          { deviceId: "a", name: "Alpha", host: "http://10.0.0.10:8080", apiKey: "ka", profile: "drone" },
+          { deviceId: "b", host: "http://10.0.0.11:8080", apiKey: "kb" },
+        ],
+      }),
+    );
+    expect(nodes).toHaveLength(2);
+    expect(nodes[0]).toMatchObject({ deviceId: "a", name: "Alpha", apiKey: "ka" });
+    expect(nodes[1]).toMatchObject({ deviceId: "b", apiKey: "kb" });
+  });
+
+  it("round-trips the file format (same parser)", () => {
+    const doc = { version: 1, nodes: [{ deviceId: "x", host: "http://drone.local:8080", apiKey: "kx" }] };
+    expect(readFleetFromEnv(b64(doc))[0]?.deviceId).toBe("x");
+  });
+
+  it("throws on non-JSON base64 and on an empty fleet", () => {
+    expect(() => readFleetFromEnv(Buffer.from("not json", "utf8").toString("base64"))).toThrow(
+      /valid JSON/i,
+    );
+    expect(() => readFleetFromEnv(b64({ nodes: [] }))).toThrow(/no valid nodes/i);
   });
 });
