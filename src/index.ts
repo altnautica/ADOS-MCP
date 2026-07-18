@@ -11,6 +11,7 @@ import { startHttpServer, startUnixServer } from "./transport/http.js";
 import { advertiseMdns, type MdnsHandle } from "./discovery/mdns.js";
 import { discoverFleet, ownerId } from "./discovery/browse.js";
 import { FileAuditSink } from "./audit/file-sink.js";
+import { ActivityFeedSink } from "./audit/activity-sink.js";
 import { ConvexAuditSink } from "./audit/convex-sink.js";
 import type { AuditSink } from "./audit/sink.js";
 import { registerReadTools } from "./registry/read-tools.js";
@@ -62,7 +63,13 @@ async function main(): Promise<void> {
       new ConvexAuditSink({ convexUrl: config.convexUrl, credential: config.credential }),
     );
   }
-  const core = new ServerCore(config, { extraAuditSinks: auditSinks });
+  // The live-feed sink writes the running -> done lane to a sibling
+  // activity.ndjson (best-effort, never the audit-of-record) so a same-machine
+  // Mission Control can watch each tool call in real time.
+  const activitySink = new ActivityFeedSink(
+    config.auditPath.replace(/audit\.ndjson$/, "activity.ndjson"),
+  );
+  const core = new ServerCore(config, { extraAuditSinks: auditSinks, activitySink });
 
   // --verify: connect, check auth + reachability, print the result, exit. No server.
   if (args.verify) {

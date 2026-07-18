@@ -27,6 +27,7 @@ import { PromptRegistry } from "./registry/prompts.js";
 import { makeResolver, type SecretResolver } from "./auth/issuers.js";
 import { DenylistRevocation, NO_REVOCATION, type RevocationSource } from "./auth/revocation.js";
 import { StderrAuditSink, MultiAuditSink, type AuditSink } from "./audit/sink.js";
+import type { ActivityFeedSink } from "./audit/activity-sink.js";
 import { LanDirectPlane } from "./plane/lan-direct.js";
 import { LocalFleetPlane } from "./plane/local-fleet.js";
 import { GcsPlane } from "./plane/gcs-plane.js";
@@ -49,6 +50,8 @@ export interface ServerCoreOptions {
   resolver?: SecretResolver;
   /** Extra audit sinks fanned in alongside the default stderr sink. */
   extraAuditSinks?: AuditSink[];
+  /** Best-effort live-feed sink (running -> done). Absent = no live feed. */
+  activitySink?: ActivityFeedSink;
   operatorPresent?: OperatorPresence;
   signedConfirm?: SignedConfirm;
 }
@@ -60,6 +63,7 @@ export class ServerCore {
   readonly pipeline: GatePipeline;
   readonly plane: PlatformPlane;
   readonly audit: AuditSink;
+  readonly activity?: ActivityFeedSink;
   private readonly als = new AsyncLocalStorage<AlsStore>();
   private fixedPrincipal: AuthContext | null = null;
   private cachedPlaneHealth: PlaneHealth | null = null;
@@ -87,6 +91,7 @@ export class ServerCore {
 
     this.audit =
       opts.auditSink ?? new MultiAuditSink([new StderrAuditSink(), ...(opts.extraAuditSinks ?? [])]);
+    this.activity = opts.activitySink;
 
     const resolver = opts.resolver ?? this.buildResolver();
     const revocation: RevocationSource = config.revokedListPath
@@ -110,6 +115,7 @@ export class ServerCore {
       rateLimiter: new RateLimiter(),
       safety: new SafetyGate(),
       audit: this.audit,
+      ...(this.activity ? { activity: this.activity } : {}),
       config: pipelineConfig,
       ...(opts.operatorPresent ? { operatorPresent: opts.operatorPresent } : {}),
       ...(opts.signedConfirm ? { signedConfirm: opts.signedConfirm } : {}),

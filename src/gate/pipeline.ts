@@ -4,7 +4,7 @@
 // handler runs without passing it, and every call (allowed or denied) produces
 // exactly one audit event.
 
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual, randomUUID } from "node:crypto";
 import { verifyToken, type TokenClaims } from "../auth/token.js";
 import { classifyIssuer, type SecretResolver } from "../auth/issuers.js";
 import { routeCapFor, type RouteCapEntry } from "../auth/route-capability.js";
@@ -24,6 +24,7 @@ import { canonicalJson } from "../auth/canonical.js";
 import { sourceIpAllowed } from "../util/cidr.js";
 import { logger } from "../util/logger.js";
 import type { AuditSink } from "../audit/sink.js";
+import type { ActivityFeedSink } from "../audit/activity-sink.js";
 import type { AuditDecision, AuditEvent, AuditPlane } from "../audit/event.js";
 import { keyIsSecret, redact, redactArgs, semanticWriteArgs, REDACTION_MARKER } from "../audit/event.js";
 import type { ToolRegistry } from "../registry/tools.js";
@@ -68,6 +69,8 @@ export interface PipelineDeps {
   rateLimiter: RateLimiter;
   safety: SafetyGate;
   audit: AuditSink;
+  /** Optional best-effort live-feed sink (running -> done). Absent = no feed. */
+  activity?: ActivityFeedSink;
   config: PipelineConfig;
   operatorPresent?: OperatorPresence;
   signedConfirm?: SignedConfirm;
@@ -252,6 +255,7 @@ export class GatePipeline {
     let node = this.deps.config.nodeId ?? "local";
     let decision: AuditDecision = "allowed";
     const allowSecrets = auth.claims.scopes.includes("secret_read");
+    const callId = randomUUID();
 
     try {
       const def = this.deps.tools.get(name);
@@ -333,6 +337,9 @@ export class GatePipeline {
         sim: this.deps.config.sim,
         secretRead: allowSecrets,
       };
+      // Live-feed start marker — the surface a same-machine GCS auto-navigates
+      // to once the call completes. Best-effort; never blocks the dispatch.
+      this.emitActivity("started", callId, name, args, node, mcpSession, auth.plane);
       const value = await def.handler(parsed.data as Record<string, unknown>, ctx);
 
       // The handler already ran; an audit-write failure here must not re-label a
@@ -370,6 +377,7 @@ export class GatePipeline {
           allowSecrets,
           mcpSession,
           resultHadSecret,
+          callId,
         );
       } catch (auditErr) {
         logger.warn("audit write failed after a successful call", {
@@ -392,6 +400,8 @@ export class GatePipeline {
         started,
         allowSecrets,
         mcpSession,
+        false,
+        callId,
       ).catch(() => undefined);
       throw gerr;
     }
@@ -549,6 +559,7 @@ export class GatePipeline {
     allowSecrets: boolean,
     mcpSession: string,
     resultHadSecret = false,
+    callId?: string,
   ): Promise<void> {
     const { args: redacted, redacted: argsTouched } = redactArgs(
       semanticWriteArgs(tool, args),
@@ -578,6 +589,40 @@ export class GatePipeline {
       ...(maskedForClient ? { redacted: true } : {}),
     };
     await this.deps.audit.record(event);
+    // Mirror the completion to the best-effort live feed (a `done` paired with
+    // its earlier `started` by callId). Never affects the audit-of-record.
+    this.emitActivity("done", callId ?? randomUUID(), tool, args, node, mcpSession, auth.plane, {
+      decision,
+      result,
+      latencyMs: event.latencyMs,
+    });
+  }
+
+  /** Best-effort live-feed emit for the running -> done lane. Masks secret-
+   *  shaped args (never allowSecrets) and never throws; absent sink = no-op. */
+  private emitActivity(
+    phase: "started" | "done",
+    callId: string,
+    tool: string,
+    args: Record<string, unknown>,
+    node: string,
+    mcpSession: string,
+    plane: string,
+    extra?: { decision?: AuditDecision; result?: string; latencyMs?: number },
+  ): void {
+    if (!this.deps.activity) return;
+    const { args: redacted } = redactArgs(semanticWriteArgs(tool, args), false);
+    void this.deps.activity.emit({
+      tsUs: Date.now() * 1000,
+      phase,
+      callId,
+      tool,
+      args: redacted,
+      node,
+      mcpSession,
+      plane,
+      ...(extra ?? {}),
+    });
   }
 }
 
