@@ -9,3 +9,6 @@ coverage/
 *.tsbuildinfo
 # Private clean-for-public overlay (sensitive-literal denylist; never published).
 .private/
+
+# Local agent tooling directory (not part of the project)
+.omp/
