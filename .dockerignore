@@ -8,3 +8,5 @@ test
 .env
 .env.*
 .DS_Store
+.omp
+.claude

@@ -10,6 +10,5 @@ coverage/
 # Private clean-for-public overlay (sensitive-literal denylist; never published).
 .private/
 
-# Local agent tooling directory (not part of the project)
-.opencode/
-opencode.jsonc
+# Local omp agent tooling directory (not part of the project)
+.omp/
