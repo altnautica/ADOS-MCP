@@ -7,7 +7,7 @@ import {
 
 const ev = (over: Partial<AuditEventLike> = {}): AuditEventLike => ({
   tool: "params.set",
-  node: "skynodepi",
+  node: "ados-x",
   operatorId: "cloud:usr_1",
   decision: "denied",
   result: "scope_denied",
@@ -40,7 +40,7 @@ describe("matchesAuditQuery", () => {
 
   it("requires every free-text term to match somewhere", () => {
     expect(matchesAuditQuery(ev(), parseAuditQuery("scope_denied"))).toBe(true);
-    expect(matchesAuditQuery(ev(), parseAuditQuery("scope_denied skynodepi"))).toBe(true);
+    expect(matchesAuditQuery(ev(), parseAuditQuery("scope_denied ados-x"))).toBe(true);
     expect(matchesAuditQuery(ev(), parseAuditQuery("scope_denied nope"))).toBe(false);
   });
 

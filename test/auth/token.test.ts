@@ -14,7 +14,7 @@ function claims(overrides: Partial<TokenClaims> = {}): TokenClaims {
     operatorId: "cloud:usr_1",
     iss: "local",
     scopes: ["read", "safe_write"],
-    allowedNodes: ["ados-skynodepi"],
+    allowedNodes: ["ados-x"],
     allowedRoots: ["/var/ados/"],
     sourceIpCidr: [],
     expiresAt: Date.now() + 60_000,
@@ -33,7 +33,7 @@ describe("token mint + verify (local issuer)", () => {
     const verified = await verifyToken(token, resolver);
     expect(verified.tokenId).toBe("tk-1");
     expect(verified.scopes).toEqual(["read", "safe_write"]);
-    expect(verified.allowedNodes).toEqual(["ados-skynodepi"]);
+    expect(verified.allowedNodes).toEqual(["ados-x"]);
   });
 
   it("rejects a tampered signature", async () => {
@@ -73,10 +73,10 @@ describe("token mint + verify (agent issuer, HKDF from pairing key)", () => {
 
   it("round-trips with the derived key and honors the node claim", async () => {
     const key = await deriveAgentTokenSecret(pairingKey);
-    const token = await mintToken(claims({ iss: "agent:ados-skynodepi" }), key);
+    const token = await mintToken(claims({ iss: "agent:ados-x" }), key);
     const resolver = makeResolver({ agent: { pairingKey } });
-    const verified = await verifyToken(token, resolver, { expectedNodeId: "ados-skynodepi" });
-    expect(verified.iss).toBe("agent:ados-skynodepi");
+    const verified = await verifyToken(token, resolver, { expectedNodeId: "ados-x" });
+    expect(verified.iss).toBe("agent:ados-x");
   });
 
   it("rejects when the agent subject does not match this node", async () => {
@@ -84,13 +84,13 @@ describe("token mint + verify (agent issuer, HKDF from pairing key)", () => {
     const token = await mintToken(claims({ iss: "agent:ados-other" }), key);
     const resolver = makeResolver({ agent: { pairingKey } });
     await expect(
-      verifyToken(token, resolver, { expectedNodeId: "ados-skynodepi" }),
+      verifyToken(token, resolver, { expectedNodeId: "ados-x" }),
     ).rejects.toThrow(/does not match this node/);
   });
 
   it("bulk-revokes via a fresh HKDF salt (a token stops verifying)", async () => {
     const key = await deriveAgentTokenSecret(pairingKey);
-    const token = await mintToken(claims({ iss: "agent:ados-skynodepi" }), key);
+    const token = await mintToken(claims({ iss: "agent:ados-x" }), key);
     const rotated = makeResolver({
       agent: { pairingKey, revocationSalt: new Uint8Array([1, 2, 3]) },
     });
@@ -99,7 +99,7 @@ describe("token mint + verify (agent issuer, HKDF from pairing key)", () => {
 
   it("rejects an agent token when the server has no agent backend", async () => {
     const key = await deriveAgentTokenSecret(pairingKey);
-    const token = await mintToken(claims({ iss: "agent:ados-skynodepi" }), key);
+    const token = await mintToken(claims({ iss: "agent:ados-x" }), key);
     const localOnly = makeResolver({ local: TEST_SECRET });
     await expect(verifyToken(token, localOnly)).rejects.toThrow(/agent issuer not supported/);
   });
