@@ -103,6 +103,13 @@ export class GcsPlane implements PlatformPlane {
     return { ok: true, target: this.config.convexUrl };
   }
 
+  // The cloud relay carries no FC-transport field, so this plane can never
+  // establish that a target is a simulator. It says no, and the sim waiver stays
+  // shut over the relay.
+  async isSimulated(_node: NodeRef): Promise<boolean> {
+    return false;
+  }
+
   /** Verify a machine credential and cache the principal (picks up revocations). */
   async verifyCredential(credential: string): Promise<CredentialPrincipal | null> {
     if (!this.client) return null;

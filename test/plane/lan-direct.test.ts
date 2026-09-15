@@ -4,6 +4,7 @@ import {
   firmwareOf,
   normalizeParams,
   readBatteryPct,
+  statusReportsSimulation,
   toOutcome,
   vehicleClassOf,
 } from "../../src/plane/lan-direct.js";
@@ -72,5 +73,24 @@ describe("lan-direct helpers", () => {
     });
     // null body -> ok with no data
     expect(toOutcome(null)).toEqual({ ok: true, status: "completed" });
+  });
+});
+
+describe("statusReportsSimulation", () => {
+  it("reads a network FC transport as simulated", () => {
+    expect(statusReportsSimulation({ fcSource: "tcp", fc_port: "tcp:127.0.0.1:5760" })).toBe(true);
+    expect(statusReportsSimulation({ fcSource: "udp" })).toBe(true);
+    // fc_port alone is enough when the source field is absent or stale.
+    expect(statusReportsSimulation({ fc_port: "udp:127.0.0.1:14550" })).toBe(true);
+    expect(statusReportsSimulation({ simulated: true })).toBe(true);
+  });
+
+  it("reads a serial FC, an unknown status, or an empty document as real hardware", () => {
+    expect(statusReportsSimulation({ fcSource: "serial", fc_port: "/dev/ttyACM0" })).toBe(false);
+    // `auto` with no resolved port is the disconnected default, not a simulator.
+    expect(statusReportsSimulation({ fcSource: "auto", fc_port: "" })).toBe(false);
+    expect(statusReportsSimulation({})).toBe(false);
+    // A hostname that merely mentions tcp must not read as a transport prefix.
+    expect(statusReportsSimulation({ fc_port: "/dev/serial/by-id/usb-tcp-thing" })).toBe(false);
   });
 });

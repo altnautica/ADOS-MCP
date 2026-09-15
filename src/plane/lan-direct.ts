@@ -61,6 +61,28 @@ export function vehicleClassOf(type: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * Does an agent `/api/status` document report a SIMULATED flight controller?
+ *
+ * The agent has no dedicated "I am SITL" boolean, so the signal is its FC
+ * transport, which it publishes two ways and which is only ever a network spec
+ * for a simulator: `fcSource` is the configured transport class (`serial` /
+ * `udp` / `tcp` / `auto`) and `fc_port` is the resolved connection string
+ * (`/dev/ttyACM0` for real hardware, `tcp:127.0.0.1:5760` / `udp:...:14550` for
+ * SITL). An explicit `sim` / `simulated` boolean is honoured first for a future
+ * agent that grows one. Anything unrecognised reads as NOT simulated, so the
+ * safety gate's sim waiver fails closed.
+ */
+export function statusReportsSimulation(status: Record<string, unknown>): boolean {
+  for (const key of ["sim", "simulated"]) {
+    if (status[key] === true) return true;
+  }
+  const source = String(status.fcSource ?? status.fc_source ?? "").toLowerCase();
+  if (source === "tcp" || source === "udp") return true;
+  const port = String(status.fc_port ?? status.fcPort ?? "").toLowerCase();
+  return /^(tcp|udp|udpin|udpout|tcpin|tcpout):/.test(port);
+}
+
 /** Normalize the agent's parameter payload (map or array) into ParamEntry[]. */
 export function normalizeParams(raw: unknown): ParamEntry[] {
   const out: ParamEntry[] = [];
@@ -116,6 +138,15 @@ export class LanDirectPlane implements PlatformPlane {
         target: this.baseUrl,
       };
     }
+  }
+
+  async isSimulated(_node: NodeRef): Promise<boolean> {
+    // Unreachable agent => not simulated. The caller turns that into a refusal,
+    // never into a waived flight gate.
+    const status = await this.get<Record<string, unknown>>("/api/status", 4000).catch(
+      () => null,
+    );
+    return status !== null && statusReportsSimulation(status);
   }
 
   async verifyCredential(_credential: string): Promise<CredentialPrincipal | null> {

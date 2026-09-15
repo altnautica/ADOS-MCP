@@ -102,6 +102,14 @@ export interface PlatformPlane {
   health(): Promise<PlaneHealth>;
 
   /**
+   * Whether the node's flight controller is a simulator (SITL) rather than real
+   * hardware, read FROM THE TARGET — never asserted by the caller. This is what
+   * the safety gate's sim waiver is allowed to rest on. A plane that cannot
+   * establish it (no reach, no signal) returns false, so the waiver fails closed.
+   */
+  isSimulated(node: NodeRef): Promise<boolean>;
+
+  /**
    * Verify a fleet-mode machine credential against the backend, returning its
    * principal or null. Agent-mode planes (no backend) return null; agent-mode
    * auth is the self-contained token path, not this.

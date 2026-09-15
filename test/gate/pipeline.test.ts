@@ -112,11 +112,27 @@ describe("GatePipeline integration", () => {
     });
   });
 
-  it("trusts an on-box caller past the scope and confirm gates", async () => {
-    const { core } = makeCore();
+  it("waives the scope check for an on-box caller but never the safety gate", async () => {
+    const { core, audit } = makeCore();
     registerFakeAdminTool(core);
     const onBox = core.onBoxContext();
-    const ok = await core.pipeline.callTool("admin.node.rename", { name: "x" }, onBox, "sess");
+    // No `confirm: true` — the admin gate refuses the on-box caller too, and the
+    // refusal is audited.
+    await expect(
+      core.pipeline.callTool("admin.node.rename", { name: "x" }, onBox, "sess"),
+    ).rejects.toMatchObject({ reason: "confirm_required" });
+    expect(audit.events.at(-1)).toMatchObject({
+      tool: "admin.node.rename",
+      decision: "denied",
+      plane: "on_box",
+    });
+    // With the confirmation it proceeds, without ever holding an admin-scoped token.
+    const ok = await core.pipeline.callTool(
+      "admin.node.rename",
+      { name: "x", confirm: true },
+      onBox,
+      "sess",
+    );
     expect(ok.content[0]?.text).toContain("renamed");
   });
 

@@ -25,6 +25,8 @@ export const TEST_SECRET = new Uint8Array(32).fill(7);
 
 export class FakePlane implements PlatformPlane {
   readonly mode: PlaneMode;
+  /** What `isSimulated` reports; makeCore sets it from the config's `sim`. */
+  simulated = false;
   constructor(mode: PlaneMode = "agent", private readonly status: NodeStatus = { ok: true }) {
     this.mode = mode;
   }
@@ -33,6 +35,9 @@ export class FakePlane implements PlatformPlane {
   }
   async health(): Promise<PlaneHealth> {
     return { ok: true, target: "fake" };
+  }
+  async isSimulated(_node: NodeRef): Promise<boolean> {
+    return this.simulated;
   }
   async verifyCredential(credential: string): Promise<CredentialPrincipal | null> {
     if (credential === "revoked-cred") return null;
@@ -208,10 +213,12 @@ export function makeCore(
   overrides: Partial<ServerConfig> = {},
 ): { core: ServerCore; audit: CapturingAuditSink } {
   const audit = new CapturingAuditSink();
-  const core = new ServerCore(baseConfig(overrides), {
-    plane: new FakePlane(overrides.mode ?? "agent"),
-    auditSink: audit,
-  });
+  const plane = new FakePlane(overrides.mode ?? "agent");
+  // A test that passes `sim: true` is describing a SITL target, so the fake
+  // plane reports simulation — but the gate still only believes it after
+  // `core.resolveSimTarget()`, exactly as the real startup does.
+  plane.simulated = overrides.sim === true;
+  const core = new ServerCore(baseConfig(overrides), { plane, auditSink: audit });
   return { core, audit };
 }
 

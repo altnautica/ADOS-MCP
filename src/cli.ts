@@ -52,7 +52,8 @@ Options:
   --mqtt-url <url>         MQTT broker url for live streams (fleet-mode)
   --fleet-endpoint <url>   Hosted endpoint name (fleet-mode)
   --audit-path <file>      Local audit file (default: ~/.ados/mcp/audit.ndjson)
-  --sim                    Target is running in simulation (SITL)
+  --sim                    Opt in to the SITL safety waiver (the server refuses
+                           to start unless the target reports a simulated FC)
   --flight-enforced        The MAVLink proxy enforce flag is confirmed on
   --no-mdns                Disable mDNS advertisement (agent-mode)
   --discover               local-fleet: browse the LAN and auto-adopt UNPAIRED

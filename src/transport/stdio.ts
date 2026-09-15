@@ -1,12 +1,16 @@
 // The stdio transport: the local one-liner Claude Code and Desktop spawn. The
-// principal is resolved once at launch. LOCAL-FIRST: a client that
-// spawns this server over stdio is the operator's own process on the operator's
-// own box, so for a LAN target (loopback, RFC1918, or an mDNS .local drone) local
-// presence is the credential and the on-box principal applies with NO token — the
-// drone's own pairing key (X-ADOS-Key) authorizes the data path separately, and
-// flight stays refused unless --flight-enforced is set. Only a PUBLIC/routable
-// target needs a launch token, so full authority is never granted to an off-LAN
-// address by presence alone. A fleet-mode credential is still the fleet path.
+// principal is resolved once at launch. LOCAL-FIRST: a client that spawns this
+// server over stdio is the operator's own process on the operator's own box, so
+// for a LAN target (loopback, RFC1918, or an mDNS .local drone) local presence
+// is the credential and NO token is needed — the drone's own pairing key
+// (X-ADOS-Key) authorizes the data path separately.
+//
+// That presence is presence on the LAPTOP, not on the aircraft, so it resolves
+// to the scoped local-presence principal (read / safe_write / admin / secret_read,
+// never flight and never destructive), not the on-box principal that the node's
+// own Unix socket mints. A client that needs the flight tier passes a
+// flight-scoped --token. Only a PUBLIC/routable target needs a launch token at
+// all. A fleet-mode credential is still the fleet path.
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { ServerCore } from "../server.js";
@@ -30,8 +34,11 @@ export async function startStdio(core: ServerCore, config: ServerConfig): Promis
     core.setFixedPrincipal(principal);
     logger.info("stdio principal resolved from launch token", { operator: principal.claims.operatorId });
   } else if (localTarget) {
-    core.setFixedPrincipal(core.onBoxContext());
-    logger.info("stdio principal is on-box (LAN target, no token)", { host: config.agentHost });
+    core.setFixedPrincipal(core.localPresenceContext());
+    logger.info("stdio principal is local-presence (LAN target, no token)", {
+      host: config.agentHost,
+      note: "flight and destructive scopes are withheld; pass --token for the flight tier",
+    });
   } else {
     throw new Error(
       "a bearer token is required for a public/remote target over stdio; pass --token or set ADOS_MCP_TOKEN. " +

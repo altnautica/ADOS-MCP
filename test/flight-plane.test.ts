@@ -49,6 +49,7 @@ describe("flight plane", () => {
 
   it("routes an armed flight call to the six-verb command vocabulary (SITL waives the human signal)", async () => {
     const { core } = makeCore({ auditPath: AUDIT, flightEnforced: true, sim: true });
+    await core.resolveSimTarget();
     registerFlightTools(core.tools);
     const a = await auth(core, ["read", "flight"]);
     await core.pipeline.callTool("flight.arm", {}, a, "s");
@@ -61,6 +62,7 @@ describe("flight plane", () => {
 
   it("reports a FC-DENIED command as not accepted (a 200 with a denied ack is not success)", async () => {
     const { core } = makeCore({ auditPath: AUDIT, flightEnforced: true, sim: true });
+    await core.resolveSimTarget();
     (core.plane as FakePlane).flightAckAccepted = false;
     registerFlightTools(core.tools);
     const a = await auth(core, ["read", "flight"]);
@@ -70,5 +72,56 @@ describe("flight plane", () => {
     expect(body.accepted).toBe(false);
     expect(body.ok).toBe(false);
     expect(body.reason).toMatch(/PreArm/);
+  });
+});
+
+describe("local principals cannot reach the flight tier without a token", () => {
+  it("denies flight.arm to the on-box principal with no token, and audits the denial", async () => {
+    const { core, audit } = makeCore({ auditPath: AUDIT, flightEnforced: true });
+    registerFlightTools(core.tools);
+    const onBox = core.onBoxContext();
+    await expect(core.pipeline.callTool("flight.arm", {}, onBox, "s")).rejects.toMatchObject({
+      reason: "operator_present_stale",
+    });
+    expect((core.plane as FakePlane).lastFlight).toBeUndefined();
+    expect(audit.events.at(-1)).toMatchObject({
+      tool: "flight.arm",
+      decision: "operator_absent",
+      plane: "on_box",
+      operatorId: "on-box:root",
+    });
+  });
+
+  it("withholds the flight and destructive scopes from the stdio local-presence principal", async () => {
+    const { core, audit } = makeCore({ auditPath: AUDIT, flightEnforced: true });
+    registerFlightTools(core.tools);
+    const local = core.localPresenceContext();
+    expect(local.claims.scopes).not.toContain("flight");
+    expect(local.claims.scopes).not.toContain("destructive");
+    expect(core.pipeline.listTools(local).map((t) => t.name)).not.toContain("flight.arm");
+    await expect(core.pipeline.callTool("flight.arm", {}, local, "s")).rejects.toMatchObject({
+      reason: "scope_missing",
+    });
+    expect(audit.events.at(-1)).toMatchObject({ tool: "flight.arm", decision: "denied" });
+  });
+});
+
+describe("the sim waiver is verified against the target, not asserted", () => {
+  it("refuses to start when --sim is asserted and the target reports real hardware", async () => {
+    const { core } = makeCore({ auditPath: AUDIT, flightEnforced: true, sim: true });
+    (core.plane as FakePlane).simulated = false;
+    await expect(core.resolveSimTarget()).rejects.toThrow(/does not report simulation/);
+  });
+
+  it("keeps the flight gate closed when --sim is asserted but unverified", async () => {
+    const { core } = makeCore({ auditPath: AUDIT, flightEnforced: true, sim: true });
+    registerFlightTools(core.tools);
+    const a = await auth(core, ["read", "flight"]);
+    // resolveSimTarget() has not run, so the assertion alone must not waive the
+    // human signal the flight class requires.
+    await expect(core.pipeline.callTool("flight.arm", {}, a, "s")).rejects.toMatchObject({
+      reason: "operator_present_stale",
+    });
+    expect((core.plane as FakePlane).lastFlight).toBeUndefined();
   });
 });

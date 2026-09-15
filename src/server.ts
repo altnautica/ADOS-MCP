@@ -64,6 +64,8 @@ export class ServerCore {
   readonly plane: PlatformPlane;
   readonly audit: AuditSink;
   readonly activity?: ActivityFeedSink;
+  /** The live gate config the pipeline reads; `sim` is resolved at startup. */
+  private readonly pipelineConfig: PipelineConfig;
   private readonly als = new AsyncLocalStorage<AlsStore>();
   private fixedPrincipal: AuthContext | null = null;
   private cachedPlaneHealth: PlaneHealth | null = null;
@@ -98,13 +100,17 @@ export class ServerCore {
       ? new DenylistRevocation(config.revokedListPath)
       : NO_REVOCATION;
 
-    const pipelineConfig: PipelineConfig = {
+    // `sim` on the pipeline is the VERIFIED posture of the bound target, never
+    // the operator's `--sim` assertion. It starts false and only
+    // `resolveSimTarget()` — which asks the plane — can raise it, so a server
+    // whose startup resolution has not run yet gates as if on real hardware.
+    this.pipelineConfig = {
       planeMode: config.mode,
       ...(config.nodeId ? { nodeId: config.nodeId } : {}),
       ...(config.credential ? { credential: config.credential } : {}),
       ...(config.fleetNodes ? { localFleetNodes: config.fleetNodes.map((n) => n.deviceId) } : {}),
       flightEnforced: config.flightEnforced,
-      sim: config.sim,
+      sim: false,
     };
 
     this.pipeline = new GatePipeline({
@@ -116,10 +122,42 @@ export class ServerCore {
       safety: new SafetyGate(),
       audit: this.audit,
       ...(this.activity ? { activity: this.activity } : {}),
-      config: pipelineConfig,
+      config: this.pipelineConfig,
       ...(opts.operatorPresent ? { operatorPresent: opts.operatorPresent } : {}),
       ...(opts.signedConfirm ? { signedConfirm: opts.signedConfirm } : {}),
       ...(config.nodeId ? { expectedNodeId: config.nodeId } : {}),
+    });
+  }
+
+  /**
+   * Resolve the gate's simulation posture from the TARGET, once, at startup.
+   *
+   * `--sim` is an operator assertion and never by itself changes a gate
+   * decision: it is only an opt-in to the sim waiver, and the waiver is armed
+   * only when the bound target itself reports a simulated flight controller. If
+   * the flag is set and the target does not report simulation — including when
+   * it cannot be reached — this throws and the server refuses to start rather
+   * than serving a waived flight gate against real hardware.
+   */
+  async resolveSimTarget(): Promise<void> {
+    if (!this.config.sim) return;
+    const nodes =
+      this.config.mode === "local-fleet"
+        ? (this.config.fleetNodes ?? []).map((n) => n.deviceId)
+        : [this.config.nodeId ?? "local"];
+    if (nodes.length === 0) {
+      throw new Error("target does not report simulation; refusing --sim (no nodes to verify)");
+    }
+    const verified = await Promise.all(nodes.map((n) => this.plane.isSimulated(n).catch(() => false)));
+    const real = nodes.filter((_, i) => !verified[i]);
+    if (real.length > 0) {
+      throw new Error(
+        `target does not report simulation; refusing --sim (real or unreachable: ${real.join(", ")})`,
+      );
+    }
+    this.pipelineConfig.sim = true;
+    logger.info("target verified as simulated; the SITL safety waiver is armed", {
+      nodes: nodes.join(","),
     });
   }
 
@@ -159,6 +197,10 @@ export class ServerCore {
 
   onBoxContext(): AuthContext {
     return this.pipeline.onBoxContext();
+  }
+
+  localPresenceContext(): AuthContext {
+    return this.pipeline.localPresenceContext();
   }
 
   private currentAuth(): AuthContext {

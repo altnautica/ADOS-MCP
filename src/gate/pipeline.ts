@@ -57,7 +57,12 @@ export interface PipelineConfig {
   localFleetNodes?: string[];
   /** True once the raw MAVLink proxy enforce flag is confirmed on. */
   flightEnforced: boolean;
-  /** True when the bound target runs in simulation (SITL). */
+  /**
+   * True when the bound target has been VERIFIED to run in simulation (the
+   * agent reports a SITL flight-controller transport). Never the operator's
+   * `--sim` assertion — `ServerCore.resolveSimTarget()` is the only writer, and
+   * it refuses startup when the flag and the target disagree.
+   */
   sim: boolean;
 }
 
@@ -217,7 +222,14 @@ export class GatePipeline {
     return { claims, plane: "cloud_relay", onBox: false, sourceIp, backendGated: true };
   }
 
-  /** A synthetic on-box principal: local presence is the credential, full scope. */
+  /**
+   * The on-box principal: a caller that reached us over the node's own Unix
+   * socket, which exists only in the run dir ON the node and is mode 0660.
+   * Presence there is the credential, so the SCOPE check is waived — but the
+   * safety gate is not. An admin call from this principal still needs
+   * `confirm: true`, and a flight call still needs a fresh operator-present
+   * signal or a signed confirm bound to the call.
+   */
   onBoxContext(osUser = "root"): AuthContext {
     const claims: TokenClaims = {
       tokenId: "on-box",
@@ -232,6 +244,31 @@ export class GatePipeline {
       label: "on-box",
     };
     return { claims, plane: "on_box", onBox: true };
+  }
+
+  /**
+   * The stdio local-presence principal: the operator's own MCP client spawned
+   * this server and the target is a drone on the LAN. That presence is presence
+   * on the LAPTOP, never on the aircraft, so this is deliberately NOT the
+   * on-box principal: it holds every scope EXCEPT `flight` and `destructive`,
+   * it passes the scope check like any other token, and it declares that a
+   * human must be present. A client that genuinely needs the flight tier
+   * presents a flight-scoped `--token`.
+   */
+  localPresenceContext(osUser = "local"): AuthContext {
+    const claims: TokenClaims = {
+      tokenId: "local-presence",
+      operatorId: `local:${osUser}`,
+      iss: "local",
+      scopes: SCOPE_GROUPS.filter((s) => s !== "flight" && s !== "destructive"),
+      allowedNodes: [],
+      allowedRoots: ["/"],
+      sourceIpCidr: [],
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      operatorPresentRequired: true,
+      label: "local-presence",
+    };
+    return { claims, plane: "lan_direct", onBox: false };
   }
 
   /** tools/list filtered to what this token may invoke. */
@@ -253,7 +290,6 @@ export class GatePipeline {
     const started = Date.now();
     const args = rawArgs ?? {};
     let node = this.deps.config.nodeId ?? "local";
-    let decision: AuditDecision = "allowed";
     const allowSecrets = auth.claims.scopes.includes("secret_read");
     const callId = randomUUID();
 
@@ -277,8 +313,12 @@ export class GatePipeline {
       node = baseEntry.fleetWide ? this.fleetWideNode() : this.resolveNode(args, auth);
       const eff = this.escalate(baseEntry, name, args);
 
-      // Scope check (authoritative). On-box is trusted past the scope gate.
-      if (!auth.onBox && !scopeCoversTool(auth.claims.scopes, eff)) {
+      // Scope check (authoritative). Waived ONLY for a caller on the node's own
+      // Unix socket, where presence on that socket is the credential. Both the
+      // flag and the audit plane are checked so a principal minted elsewhere can
+      // never inherit the waiver by setting one of them.
+      const socketPrincipal = auth.onBox && auth.plane === "on_box";
+      if (!socketPrincipal && !scopeCoversTool(auth.claims.scopes, eff)) {
         throw new GateError("scope_missing", `${name} requires the ${eff.scope} scope`, {
           required: eff.scope,
         });
@@ -290,21 +330,21 @@ export class GatePipeline {
         throw new GateError("ws_proxy_enforce_off", `${name} is disabled until MAVLink auth is enforced`);
       }
 
-      // Class-specific safety gate. On-box is trusted past confirm/present.
+      // Class-specific safety gate. EVERY principal passes it, including on-box:
+      // presence on a socket is not a human confirming an action, so a confirm,
+      // a typed phrase, and an operator-present signal are required of the local
+      // caller exactly as they are of a remote one.
       const argsHash = createHash("sha256").update(canonicalJson(args)).digest("hex");
-      if (!auth.onBox) {
-        const sd = this.deps.safety.evaluate({
-          tool: name,
-          node,
-          safetyClass: eff.safetyClass,
-          args,
-          argsHash,
-          sim: this.deps.config.sim,
-          operatorPresent: this.operatorPresent,
-          signedConfirm: this.signedConfirm,
-        });
-        decision = sd.decision;
-      }
+      const { decision } = this.deps.safety.evaluate({
+        tool: name,
+        node,
+        safetyClass: eff.safetyClass,
+        args,
+        argsHash,
+        sim: this.deps.config.sim,
+        operatorPresent: this.operatorPresent,
+        signedConfirm: this.signedConfirm,
+      });
 
       // Rate limit (per token bucket).
       const rl = this.deps.rateLimiter.check(auth.claims.tokenId, "tool");
@@ -419,7 +459,7 @@ export class GatePipeline {
     let node = this.deps.config.nodeId ?? "local";
     const allowSecrets = auth.claims.scopes.includes("secret_read");
     try {
-      if (!auth.onBox && !auth.claims.scopes.includes("read")) {
+      if (!(auth.onBox && auth.plane === "on_box") && !auth.claims.scopes.includes("read")) {
         throw new GateError("scope_missing", `resource ${uri} requires the read scope`, {
           required: "read",
         });

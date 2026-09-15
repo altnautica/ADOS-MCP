@@ -188,6 +188,8 @@ export interface ServerConfig {
   unixSocketPath: string;
   // gate
   flightEnforced: boolean;
+  /** The operator's `--sim` opt-in. An assertion, verified against the target at
+   * startup; it is not what the gate reads (see PipelineConfig.sim). */
   sim: boolean;
   // discovery
   mdns: boolean;

@@ -109,6 +109,12 @@ export class LocalFleetPlane implements PlatformPlane {
     );
   }
 
+  // Per-node simulation posture, read from that node's own agent. A node that is
+  // not in the fleet file rejects, which the caller treats as not simulated.
+  isSimulated(n: NodeRef): Promise<boolean> {
+    return this.via(n, (c) => c.isSimulated(n));
+  }
+
   // --- reads (delegated to the target node's client) ---
   getStatus(n: NodeRef): Promise<NodeStatus> {
     return this.via(n, (c) => c.getStatus(n));

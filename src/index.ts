@@ -76,6 +76,11 @@ async function main(): Promise<void> {
     await runVerify(core);
     return;
   }
+  // `--sim` is an assertion about the target, so it is verified against the
+  // target before any tool can be served. A mismatch is fatal, never a warning:
+  // the flag's only effect is to waive a human confirmation, and waiving that
+  // against real hardware is the failure this refuses.
+  await core.resolveSimTarget();
 
   registerReadTools(core.tools, config.auditPath);
   registerReadResources(core.resources);
