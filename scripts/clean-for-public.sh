@@ -32,42 +32,49 @@ patterns=(
   'inav-configurator'
   'dimensional ?os'
   '/Users/[a-z]'
-  '192\.168\.'
+  '192\.168\.(200|0)\.'
   '₹'
   'fundraise'
 )
 
 # Overlay a private, gitignored denylist (one extended-regex pattern per line,
-# blank lines and # comments ignored). Absent file => structural sweep only.
+# blank lines and # comments ignored). The named half of the sweep lives ONLY
+# there, so a file that is absent — or present but contributes no pattern —
+# means the run covered structural patterns and nothing else. That must never
+# read as a full pass: it warns, and it FAILS outright when the caller declares
+# the overlay mandatory with ADOS_DENYLIST_REQUIRED=1 (which CI sets, writing the
+# list from a repository secret).
 denylist_file="${ADOS_DENYLIST_FILE:-.private/denylist.txt}"
+denylist_count=0
 if [ -f "$denylist_file" ]; then
   while IFS= read -r line; do
     [ -z "$line" ] && continue
     case "$line" in \#*) continue ;; esac
     patterns+=("$line")
+    denylist_count=$((denylist_count + 1))
   done < "$denylist_file"
 fi
-
-# Files / dirs the sweep ignores.
-excludes=(
-  ':!pnpm-lock.yaml'
-  ':!dist/'
-  ':!coverage/'
-  ':!node_modules/'
-  ':!vendor/'
-  ':!scripts/clean-for-public.sh'
-)
+if [ "$denylist_count" -eq 0 ] && [ "${ADOS_DENYLIST_REQUIRED:-0}" = "1" ]; then
+  echo "clean-for-public: FAIL — named denylist missing or empty at '$denylist_file'; set ADOS_DENYLIST_FILE or provide .private/denylist.txt"
+  exit 2
+fi
 
 found=0
+
 # Scan the whole WORKING TREE with plain grep (not `git grep`): it sees tracked,
 # staged, AND untracked files, and tolerates excluded dirs that do not exist —
 # `git grep --untracked` fatals on a missing exclude pathspec, which a swallowed
 # error can turn into a false pass. A fresh, not-yet-indexed file must never slip
 # past the sweep.
+#
+# Two of the excluded directories are not build output: `.private` holds the
+# denylist itself, and `.omp` is a gitignored local agent-tooling bridge that is
+# never published — a hit in either is noise that would train a reader to ignore
+# this guard.
 for p in "${patterns[@]}"; do
   hits=$(grep -rnEI -i \
     --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=coverage \
-    --exclude-dir=.git --exclude-dir=vendor --exclude-dir=.private \
+    --exclude-dir=.git --exclude-dir=vendor --exclude-dir=.private --exclude-dir=.omp \
     --exclude=pnpm-lock.yaml --exclude=clean-for-public.sh \
     -- "$p" . 2>/dev/null || true)
   if [ -n "$hits" ]; then
@@ -83,4 +90,9 @@ if [ "$found" -ne 0 ]; then
   exit 1
 fi
 
-echo "clean-for-public sweep passed."
+if [ "$denylist_count" -gt 0 ]; then
+  echo "clean-for-public sweep passed (structural + $denylist_count named pattern(s))."
+else
+  echo "clean-for-public: WARNING — structural patterns only, named denylist not loaded."
+  echo "clean-for-public: PARTIAL sweep passed. Set ADOS_DENYLIST_FILE (and ADOS_DENYLIST_REQUIRED=1 in CI) for the full sweep."
+fi

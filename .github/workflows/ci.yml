@@ -34,5 +34,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # The named half of the sweep lives in a private denylist that is never
+      # committed, so CI materializes it from a repository secret and declares it
+      # mandatory. Without this the job would only ever run the structural half.
       - name: Clean-for-public sweep
-        run: bash scripts/clean-for-public.sh
+        env:
+          ADOS_DENYLIST: ${{ secrets.ADOS_DENYLIST }}
+        run: |
+          # Only materialize the file when the secret actually has content: an
+          # empty file would load zero named patterns and the run would read as a
+          # full pass, which is the failure mode this wiring exists to remove.
+          if [ -n "${ADOS_DENYLIST//[[:space:]]/}" ]; then
+            printf '%s\n' "$ADOS_DENYLIST" > "$RUNNER_TEMP/denylist.txt"
+          fi
+          ADOS_DENYLIST_FILE="$RUNNER_TEMP/denylist.txt" \
+          ADOS_DENYLIST_REQUIRED=1 \
+            bash scripts/clean-for-public.sh

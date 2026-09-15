@@ -98,8 +98,8 @@ Then ask your client for a drone's status. See [`docs/`](./docs) for the tool ca
 ## Transports
 
 - **Streamable HTTP** (`POST /mcp`, single endpoint, SSE upgrade for streams), the primary networked transport.
-- **stdio**, the local one-liner for Claude Code and Desktop.
-- **Unix socket** (`/run/ados/mcp.sock`), on-box in agent and local-fleet modes, where local presence is the credential.
+- **stdio**, the local one-liner for Claude Code and Desktop. A LAN target needs no token, and that tokenless principal holds every scope except `flight` and `destructive` — presence on your laptop is not presence on the aircraft. Pass `--token` with a flight-scoped token to reach the flight tools.
+- **Unix socket** (`/run/ados/mcp.sock`), on-box in agent and local-fleet modes, where local presence is the credential. It waives the scope check, never the safety gate.
 
 ## Safety model
 
@@ -107,6 +107,8 @@ Then ask your client for a drone's status. See [`docs/`](./docs) for the tool ca
 - Every write is checked against the token scope, a per-tool safety class, and, for flight or destructive actions, a typed confirmation and an operator-present signal.
 - Annotations (`readOnlyHint`, `destructiveHint`) are advertised honestly but are hints, never the enforcement point. The server enforces.
 - Every call produces one redacted audit event.
+- No principal is trusted past the safety gate, including the on-box one: an admin call still needs its confirmation and a flight call still needs an operator-present signal or a signed confirm.
+- `--sim` only opts in to the SITL waiver. The server asks the target whether its flight controller is a simulator and refuses to start if it is not, so the waiver can never be asserted onto real hardware.
 
 ## Develop
 

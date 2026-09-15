@@ -69,6 +69,16 @@ The connection credential differs by mode:
   verified principal and the reach identity are one operator), and a revocation in
   the tab cuts the server off within the re-verification window.
 
+Two principals carry no token at all, and neither is trusted past the safety gate:
+
+- **local presence over stdio** — an MCP client on the operator's own machine
+  pointed at a LAN drone. It holds every scope except `flight` and `destructive`,
+  because presence on the laptop is not presence on the aircraft; the flight tier
+  needs a flight-scoped `--token`.
+- **the on-box Unix socket** — a caller on the node itself. Presence on that
+  socket waives the scope check only; the confirmation, typed phrase and
+  operator-present checks still apply.
+
 ## Audit
 
 Every call, allowed or denied, produces one redacted event in the platform's
