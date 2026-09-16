@@ -94,5 +94,5 @@ if [ "$denylist_count" -gt 0 ]; then
   echo "clean-for-public sweep passed (structural + $denylist_count named pattern(s))."
 else
   echo "clean-for-public: WARNING — structural patterns only, named denylist not loaded."
-  echo "clean-for-public: PARTIAL sweep passed. Set ADOS_DENYLIST_FILE (and ADOS_DENYLIST_REQUIRED=1 in CI) for the full sweep."
+  echo "clean-for-public: PARTIAL sweep passed — structural patterns only. The named half is enforced before the commit, by the boundary guard in the private monorepo; set ADOS_DENYLIST_FILE to run it here too."
 fi
