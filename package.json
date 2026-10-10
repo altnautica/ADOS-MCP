@@ -1,6 +1,6 @@
 {
   "name": "@altnautica/ados-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Model Context Protocol server for the ADOS drone platform: read and control a drone or a fleet from an AI client, scoped, audited, and safety-gated.",
   "keywords": [
     "mcp",

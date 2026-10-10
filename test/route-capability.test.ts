@@ -51,4 +51,12 @@ describe("route-to-capability table", () => {
     // A read tool never affects flight.
     expect(routeCapFor("status.get")?.affectsFlight).toBeUndefined();
   });
+
+  it("classes tracker retargeting as a flight tool on the designate capability", () => {
+    const e = routeCapFor("vision.designate");
+    expect(e?.scope).toBe("flight");
+    expect(e?.safetyClass).toBe("flight");
+    expect(e?.affectsFlight).toBe(true);
+    expect(e?.capability).toBe("vision.track.designate");
+  });
 });

@@ -15,6 +15,19 @@ const NODE = z.string().optional().describe("Device id (fleet-mode) or host (age
 // admin tools require confirm:true; escalatable ones also accept a signed confirm id.
 const CONFIRM = z.boolean().optional().describe("Set true to confirm this administrative action");
 const CONFIRM_ID = z.string().optional().describe("A signed confirm id, when the action escalates to flight");
+// Path-segment arguments are pattern-checked so a value such as `..` can never
+// normalise into a different agent route.
+const PLUGIN_ID = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9.-]{2,127}$/)
+  .refine((v) => !v.includes(".."), "plugin id must not contain '..'")
+  .describe("The plugin id, e.g. com.example-oem.payload.");
+const PARAM_NAME = z.string().regex(/^[A-Z0-9_]{1,16}$/).describe("The parameter name.");
+const UNIT_NAME = z
+  .string()
+  .regex(/^ados-[a-z0-9@.-]+$/)
+  .refine((v) => !v.includes(".."), "unit name must not contain '..'")
+  .describe("The service unit name, e.g. ados-video.");
 
 const WRITE: ToolDefinition["annotations"] = { readOnlyHint: false, openWorldHint: true };
 const READ: ToolDefinition["annotations"] = { readOnlyHint: true, openWorldHint: true };
@@ -27,7 +40,7 @@ export function registerAdminTools(reg: ToolRegistry): void {
       description: "Restart one supervised service on the node (confirm required).",
       inputSchema: z.object({
         node: NODE,
-        name: z.string().describe("The service unit name, e.g. ados-video."),
+        name: UNIT_NAME,
         confirm: CONFIRM,
         confirm_id: CONFIRM_ID,
       }),
@@ -47,7 +60,7 @@ export function registerAdminTools(reg: ToolRegistry): void {
         "Set one flight-controller parameter to a numeric value (confirm required; flight-critical names need the flight scope and a signed confirm).",
       inputSchema: z.object({
         node: NODE,
-        name: z.string().describe("The parameter name."),
+        name: PARAM_NAME,
         value: z.number().describe("The new numeric value."),
         confirm: CONFIRM,
         confirm_id: CONFIRM_ID,
@@ -85,14 +98,14 @@ export function registerAdminTools(reg: ToolRegistry): void {
     {
       name: "plugins.enable",
       description: "Enable an installed plugin by id (confirm required).",
-      inputSchema: z.object({ node: NODE, id: z.string(), confirm: CONFIRM }),
+      inputSchema: z.object({ node: NODE, id: PLUGIN_ID, confirm: CONFIRM }),
       annotations: WRITE,
       handler: (a, ctx) => ctx.plane.pluginEnable(ctx.node, String(a.id)),
     },
     {
       name: "plugins.disable",
       description: "Disable an installed plugin by id (confirm required).",
-      inputSchema: z.object({ node: NODE, id: z.string(), confirm: CONFIRM }),
+      inputSchema: z.object({ node: NODE, id: PLUGIN_ID, confirm: CONFIRM }),
       annotations: WRITE,
       handler: (a, ctx) => ctx.plane.pluginDisable(ctx.node, String(a.id)),
     },
@@ -101,7 +114,7 @@ export function registerAdminTools(reg: ToolRegistry): void {
       description: "Remove an installed plugin by id, optionally keeping its data (confirm required).",
       inputSchema: z.object({
         node: NODE,
-        id: z.string(),
+        id: PLUGIN_ID,
         keep_data: z.boolean().optional(),
         confirm: CONFIRM,
       }),
@@ -113,7 +126,7 @@ export function registerAdminTools(reg: ToolRegistry): void {
       description: "Set one plugin configuration value (scope drone|global).",
       inputSchema: z.object({
         node: NODE,
-        id: z.string(),
+        id: PLUGIN_ID,
         key: z.string(),
         value: z.union([z.string(), z.number(), z.boolean(), z.record(z.string(), z.unknown()), z.array(z.unknown())]),
         scope: z.enum(["drone", "global"]).optional(),
@@ -132,7 +145,7 @@ export function registerAdminTools(reg: ToolRegistry): void {
     {
       name: "plugins.info",
       description: "Read one installed plugin's detail and manifest.",
-      inputSchema: z.object({ node: NODE, id: z.string() }),
+      inputSchema: z.object({ node: NODE, id: PLUGIN_ID }),
       annotations: READ,
       handler: (a, ctx) => ctx.plane.getPluginInfo(ctx.node, String(a.id)),
     },

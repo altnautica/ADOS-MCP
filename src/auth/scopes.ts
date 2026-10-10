@@ -3,6 +3,8 @@
 // with a safety class. Flight and destructive default off; a token cannot invoke
 // a tool of that class unless the operator explicitly added the scope at mint.
 
+import { CAPABILITY_FLOOR } from "./capability-floor.generated.js";
+
 export const SCOPE_GROUPS = [
   "read",
   "safe_write",
@@ -48,7 +50,6 @@ export const SCOPE_CAPABILITIES: Record<ScopeGroup, readonly string[]> = {
     "recording.write",
     "mission.write.stage",
     "vision.model.register",
-    "vision.designate",
     "video.snapshot",
     "display.oled.page",
   ],
@@ -62,6 +63,9 @@ export const SCOPE_CAPABILITIES: Record<ScopeGroup, readonly string[]> = {
     "flight.guided_setpoint",
     "mavlink.write",
     "mission.write",
+    "msp.write",
+    "estimator.pose.inject",
+    "vision.track.designate",
   ],
   destructive: [
     "system.reboot",
@@ -123,19 +127,58 @@ export function maxSafetyClass(a: SafetyClass, b: SafetyClass): SafetyClass {
 }
 
 /**
- * The safety class a single platform capability id implies, matched by FAMILY.
- * The agent's real capability vocabulary is broader than the curated
- * SCOPE_CAPABILITIES lists (it also carries `mavlink.send`,
- * `flight.guided_setpoint.send`, `mavlink.tunnel*`, `mavlink.component.*`,
- * `mavlink.register_component`), so an exact-match check would let a
- * vehicle-commanding cap slip past. This classifier matches by prefix/family so
- * no command / MAVLink-write / mission-write / node-lifecycle cap is missed.
- * Returns null for read/safe_write-class caps (no security floor is needed for
- * those — read and safe_write both pass the safety gate with no confirm).
+ * Capability ids known to imply no floor above safe_write: the curated read and
+ * safe_write scope vocabulary, the agent catalog's read / data / perception ids,
+ * and the read-only SDK method names. An id that is neither here nor in the
+ * generated CAPABILITY_FLOOR is unknown and is floored at admin (fail closed).
+ */
+export const READ_SAFE_ALLOWLIST: ReadonlySet<string> = new Set([
+  ...SCOPE_CAPABILITIES.read,
+  ...SCOPE_CAPABILITIES.safe_write.filter((c) => !c.startsWith("mission.write")),
+  "button.subscribe",
+  "cloud.publish",
+  "cloud.read",
+  "cloud.records",
+  "event.publish",
+  "event.subscribe",
+  "mavlink.subscribe",
+  "mcp.expose",
+  "msp.read",
+  "msp.subscribe",
+  "node.info.read",
+  "perception.subscribe",
+  "radio.aux_stream",
+  "sensor.camera.register",
+  "sensor.depth.register",
+  "sensor.imu.register",
+  "sensor.lidar.register",
+  "sensor.payload.register",
+  "telemetry.extend",
+  "telemetry.subscribe",
+  "video.source.set",
+  "vision.detection.publish",
+  "vision.frame.read",
+  "vision.model.read",
+  "vision.offload.advertise",
+]);
+
+/** Plugin-scoped ids (`plugin.<id>.<name>`) reach only the granting plugin. */
+const PLUGIN_SCOPED_PREFIX = "plugin.";
+
+/**
+ * The safety class a single platform capability id implies.
+ *
+ * Order: the destructive family (node lifecycle, OTA, mass reset, termination);
+ * the flight family by prefix (vehicle commands, guided setpoints, mission
+ * writes, every non-read MAVLink id including method names such as
+ * `mavlink.send` that the catalog does not list); then the floor generated from
+ * the agent capability catalog (`flight_control` non-read ids are flight,
+ * `hardware.*` is admin). Ids on READ_SAFE_ALLOWLIST and plugin-scoped ids
+ * imply no floor (null). Any other id is unknown and is
+ * floored at admin, so a new catalog id can never slip under a read token.
  * `secret_read` is orthogonal and never raises the write class.
  */
 export function capabilityFloorClass(cap: string): SafetyClass | null {
-  // destructive: node lifecycle, OTA, mass reset, flight termination.
   if (
     cap === "params.reset_all" ||
     cap === "flight.terminate" ||
@@ -145,10 +188,6 @@ export function capabilityFloorClass(cap: string): SafetyClass | null {
   ) {
     return "destructive";
   }
-  // flight: anything that can command the vehicle, write a mission, or inject
-  // MAVLink to the FC (write / send / tunnel / component / register-component —
-  // component includes VIO, which feeds the state estimator). The two read-only
-  // MAVLink caps are the only exclusions.
   if (
     cap === "vehicle.command" ||
     cap.startsWith("flight.") ||
@@ -157,17 +196,12 @@ export function capabilityFloorClass(cap: string): SafetyClass | null {
   ) {
     return "flight";
   }
-  // admin: process spawn, outbound network, host filesystem, network config.
-  if (
-    cap === "process.spawn" ||
-    cap === "network.outbound" ||
-    cap === "filesystem.host" ||
-    cap.startsWith("config.set.network") ||
-    cap.startsWith("network.")
-  ) {
-    return "admin";
+  const generated = CAPABILITY_FLOOR[cap];
+  if (generated) return generated;
+  if (READ_SAFE_ALLOWLIST.has(cap) || cap.startsWith(PLUGIN_SCOPED_PREFIX)) {
+    return null;
   }
-  return null;
+  return "admin";
 }
 
 /**
@@ -201,6 +235,7 @@ export function grantsAffectFlight(granted: readonly string[]): boolean {
       cap === "vehicle.command" ||
       cap.startsWith("flight.") ||
       cap.startsWith("mission.write") ||
-      (cap.startsWith("mavlink.") && cap !== "mavlink.read" && cap !== "mavlink.subscribe"),
+      (cap.startsWith("mavlink.") && cap !== "mavlink.read" && cap !== "mavlink.subscribe") ||
+      CAPABILITY_FLOOR[cap] === "flight",
   );
 }

@@ -39,6 +39,18 @@ export function agentBaseUrl(host: string): string {
   return `http://${trimmed}:8080`;
 }
 
+/**
+ * Encode one agent-route path segment. A dot segment or a `..` anywhere would
+ * let the agent's router normalise the URL onto a different route, so those are
+ * refused as invalid arguments rather than sent.
+ */
+export function pathSegment(value: string): string {
+  if (value.length === 0 || value === "." || value.includes("..") || value.includes("/")) {
+    throw new GateError("invalid_arguments", `invalid path segment: ${JSON.stringify(value)}`);
+  }
+  return encodeURIComponent(value);
+}
+
 /** Map the platform's FC-variant string to a metadata firmware key. */
 export function firmwareOf(variant: unknown): string {
   const v = String(variant ?? "").toLowerCase();
@@ -188,7 +200,7 @@ export class LanDirectPlane implements PlatformPlane {
   }
 
   async getParam(_node: NodeRef, name: string): Promise<ParamEntry | null> {
-    const raw = await this.get<unknown>(`/api/params/${encodeURIComponent(name)}`);
+    const raw = await this.get<unknown>(`/api/params/${pathSegment(name)}`);
     if (raw && typeof raw === "object") {
       const r = raw as Record<string, unknown>;
       const value = r.value;
@@ -241,7 +253,7 @@ export class LanDirectPlane implements PlatformPlane {
   // --- Admin / ecosystem writes over the agent REST (drone-direct) ---
 
   async restartService(_node: NodeRef, unit: string): Promise<CommandOutcome> {
-    return toOutcome(await this.post(`/api/services/${encodeURIComponent(unit)}/restart`));
+    return toOutcome(await this.post(`/api/services/${pathSegment(unit)}/restart`));
   }
 
   async restartSupervisor(_node: NodeRef): Promise<CommandOutcome> {
@@ -249,7 +261,7 @@ export class LanDirectPlane implements PlatformPlane {
   }
 
   async setParam(_node: NodeRef, name: string, value: number): Promise<CommandOutcome> {
-    return toOutcome(await this.post(`/api/params/${encodeURIComponent(name)}`, { value }));
+    return toOutcome(await this.post(`/api/params/${pathSegment(name)}`, { value }));
   }
 
   async setConfig(_node: NodeRef, key: string, value: string): Promise<CommandOutcome> {
@@ -266,16 +278,16 @@ export class LanDirectPlane implements PlatformPlane {
   }
 
   async pluginEnable(_node: NodeRef, id: string): Promise<CommandOutcome> {
-    return toOutcome(await this.post(`/api/plugins/${encodeURIComponent(id)}/enable`));
+    return toOutcome(await this.post(`/api/plugins/${pathSegment(id)}/enable`));
   }
 
   async pluginDisable(_node: NodeRef, id: string): Promise<CommandOutcome> {
-    return toOutcome(await this.post(`/api/plugins/${encodeURIComponent(id)}/disable`));
+    return toOutcome(await this.post(`/api/plugins/${pathSegment(id)}/disable`));
   }
 
   async pluginRemove(_node: NodeRef, id: string, keepData?: boolean): Promise<CommandOutcome> {
     const q = keepData ? "?keep_data=1" : "";
-    return toOutcome(await this.del(`/api/plugins/${encodeURIComponent(id)}${q}`));
+    return toOutcome(await this.del(`/api/plugins/${pathSegment(id)}${q}`));
   }
 
   async pluginConfig(
@@ -286,7 +298,7 @@ export class LanDirectPlane implements PlatformPlane {
     scope?: string,
   ): Promise<CommandOutcome> {
     return toOutcome(
-      await this.put(`/api/plugins/${encodeURIComponent(id)}/config`, {
+      await this.put(`/api/plugins/${pathSegment(id)}/config`, {
         key,
         value,
         ...(scope ? { scope } : {}),
@@ -299,7 +311,7 @@ export class LanDirectPlane implements PlatformPlane {
   }
 
   getPluginInfo(_node: NodeRef, id: string): Promise<unknown> {
-    return this.get(`/api/plugins/${encodeURIComponent(id)}`);
+    return this.get(`/api/plugins/${pathSegment(id)}`);
   }
 
   invokePluginTool(
@@ -309,7 +321,7 @@ export class LanDirectPlane implements PlatformPlane {
     args: Record<string, unknown>,
   ): Promise<unknown> {
     return this.post(
-      `/api/plugins/${encodeURIComponent(id)}/tools/${encodeURIComponent(tool)}/invoke`,
+      `/api/plugins/${pathSegment(id)}/tools/${pathSegment(tool)}/invoke`,
       { arguments: args },
     );
   }

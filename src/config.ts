@@ -170,6 +170,8 @@ export interface ServerConfig {
   fleetNodes?: FleetNode[];
   /** local-fleet: browse the LAN and auto-adopt UNPAIRED drones (opt-in). */
   discover: boolean;
+  /** HTTP: trust forwarded client-IP headers and bind loopback (`--trust-proxy`). */
+  trustProxy?: boolean;
   // fleet-mode (the GCS-interface pathway)
   convexUrl?: string;
   /** The operator machine credential that reaches the GCS backend (fleet-mode). */
@@ -309,6 +311,7 @@ export function resolveConfig(args: CliArgs): ServerConfig {
     sim: args.sim,
     mdns: args.mdns && mode === "agent",
     discover: (args.discover || process.env.ADOS_MCP_DISCOVER === "1") && mode === "local-fleet",
+    trustProxy: args.trustProxy === true,
     mdnsHostname: process.env.ADOS_MDNS_HOSTNAME,
     lanIp: process.env.ADOS_LAN_IP,
   };

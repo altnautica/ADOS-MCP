@@ -26,6 +26,8 @@ export interface CliArgs {
   mdns: boolean;
   /** local-fleet: browse the LAN and auto-adopt UNPAIRED drones (opt-in). */
   discover: boolean;
+  /** HTTP: sit behind a trusted reverse proxy (bind loopback, read forwarded IP). */
+  trustProxy?: boolean;
   /** Connect, verify auth/reachability, print the result, and exit (no server). */
   verify: boolean;
   help: boolean;
@@ -55,6 +57,10 @@ Options:
   --sim                    Opt in to the SITL safety waiver (the server refuses
                            to start unless the target reports a simulated FC)
   --flight-enforced        The MAVLink proxy enforce flag is confirmed on
+  --trust-proxy            HTTP: the listener sits behind a trusted reverse proxy.
+                           Binds 127.0.0.1 and reads the client IP from
+                           cf-connecting-ip, else the right-most X-Forwarded-For
+                           hop. Off by default (binds ::, socket peer only).
   --no-mdns                Disable mDNS advertisement (agent-mode)
   --discover               local-fleet: browse the LAN and auto-adopt UNPAIRED
                            drones (self-claims their key). Off by default.
@@ -94,6 +100,7 @@ export function parseCli(argv: string[]): CliArgs {
       "audit-path": { type: "string" },
       sim: { type: "boolean", default: false },
       "flight-enforced": { type: "boolean", default: false },
+      "trust-proxy": { type: "boolean", default: false },
       "no-mdns": { type: "boolean", default: false },
       discover: { type: "boolean", default: false },
       verify: { type: "boolean", default: false },
@@ -141,6 +148,7 @@ export function parseCli(argv: string[]): CliArgs {
     flightEnforced: Boolean(values["flight-enforced"]),
     mdns: !values["no-mdns"],
     discover: Boolean(values.discover),
+    trustProxy: Boolean(values["trust-proxy"]),
     verify: Boolean(values.verify),
     help: Boolean(values.help),
     version: Boolean(values.version),

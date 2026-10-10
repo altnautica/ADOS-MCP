@@ -136,7 +136,8 @@ export const ROUTE_CAPABILITY_TABLE: readonly RouteCapEntry[] = [
   R("vision.status", "read", "perception.read"),
   R("vision.detector_get", "read", "perception.read"),
   R("vision.detector_set", "safe_write", "vision.model.register"),
-  R("vision.designate", "safe_write", "vision.designate"),
+  // Retargeting the tracker steers an active follow toward the new lock.
+  R("vision.designate", "flight", "vision.track.designate", { affectsFlight: true }),
   // video.* (read, url handoff)
   R("video.live_url", "read", "telemetry.read"),
   R("video.snapshot", "safe_write", "video.snapshot"),

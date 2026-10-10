@@ -32,10 +32,10 @@ export interface HttpListenerOptions {
   /** True for the on-box Unix socket: presence is the credential, no bearer. */
   onBox: boolean;
   /**
-   * True when the listener sits behind a trusted reverse proxy (fleet-mode
-   * behind the tunnel). The real client address is then read from the forwarded
-   * headers, so a token's source-IP pin is enforced against the client, not the
-   * proxy's loopback peer.
+   * True only when the operator passed `--trust-proxy`: the listener sits behind
+   * a trusted reverse proxy and binds loopback. The real client address is then
+   * read from the forwarded headers, so a token's source-IP pin is enforced
+   * against the client, not the proxy's loopback peer.
    */
   trustProxy: boolean;
 }
@@ -174,18 +174,25 @@ async function resolveAuth(
   const authz = header(req, "authorization");
   const bearer = authz && /^Bearer\s+(.+)$/i.exec(authz)?.[1];
   if (!bearer) throw new GateError("unauthorized", "missing Authorization: Bearer <token>");
-  const sourceIp = opts.trustProxy ? clientIpFromHeaders(req) : normalizeIp(req.socket.remoteAddress);
+  const sourceIp = resolveSourceIp(req, opts.trustProxy);
   return core.authenticateBearer(bearer, sourceIp);
 }
 
-/** The real client IP behind a trusted proxy: Cloudflare's header, then XFF. */
-function clientIpFromHeaders(req: http.IncomingMessage): string | undefined {
-  const cf = header(req, "cf-connecting-ip");
-  if (cf) return normalizeIp(cf.trim());
+/**
+ * The caller's source IP. Without proxy trust it is the socket peer, so a
+ * forwarded header cannot spoof it. Behind a trusted proxy it is Cloudflare's
+ * `cf-connecting-ip`, else the right-most `x-forwarded-for` hop (the one the
+ * proxy itself appended; earlier hops are client-controlled).
+ */
+export function resolveSourceIp(req: http.IncomingMessage, trustProxy: boolean): string | undefined {
+  if (!trustProxy) return normalizeIp(req.socket.remoteAddress);
+  const cf = header(req, "cf-connecting-ip")?.trim();
+  if (cf) return normalizeIp(cf);
   const xff = header(req, "x-forwarded-for");
   if (xff) {
-    const first = xff.split(",")[0]?.trim();
-    if (first) return normalizeIp(first);
+    const hops = xff.split(",").map((h) => h.trim()).filter((h) => h.length > 0);
+    const last = hops[hops.length - 1];
+    if (last) return normalizeIp(last);
   }
   return normalizeIp(req.socket.remoteAddress);
 }
@@ -227,14 +234,19 @@ async function readJsonBody(
   }
 }
 
-export function startHttpServer(core: ServerCore, port: number, host = "::"): Promise<http.Server> {
-  const server = http.createServer(
-    createMcpHttpListener(core, { onBox: false, trustProxy: core.config.mode === "fleet" }),
-  );
+/**
+ * Start the network listener. With `--trust-proxy` it binds loopback only (the
+ * proxy is the sole reachable peer, so forwarded headers can be believed);
+ * otherwise it binds `::` and trusts only the socket peer address.
+ */
+export function startHttpServer(core: ServerCore, port: number, host?: string): Promise<http.Server> {
+  const trustProxy = core.config.trustProxy === true;
+  const bindHost = host ?? (trustProxy ? "127.0.0.1" : "::");
+  const server = http.createServer(createMcpHttpListener(core, { onBox: false, trustProxy }));
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, host, () => {
-      logger.info(`streamable HTTP listening on ${host}:${port}/mcp`);
+    server.listen(port, bindHost, () => {
+      logger.info(`streamable HTTP listening on ${bindHost}:${port}/mcp`);
       resolve(server);
     });
   });
