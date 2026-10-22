@@ -6,6 +6,8 @@ versioning.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-22
+
 ### Added
 
 - A container image, `ghcr.io/altnautica/ados-mcp`, for linux/amd64 and
