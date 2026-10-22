@@ -1,8 +1,8 @@
 <p align="center">
   <a href="https://altnautica.com">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/brand/ados-lockup-dark.svg">
-      <img src=".github/assets/brand/ados-lockup-light.svg" alt="ADOS" width="220">
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/brand/altnautica-wordmark-dark.svg">
+      <img src=".github/assets/brand/altnautica-wordmark-light.svg" alt="Altnautica" width="240">
     </picture>
   </a>
 </p>
@@ -40,6 +40,8 @@
 </p>
 
 ADOS MCP lets any MCP-capable AI client connect to an ADOS drone or ground station and read it, administer it, and, when the operator explicitly allows it, fly it. Every connection carries a scope, anything that moves an aircraft needs a confirmation, and every call lands in an audit trail.
+
+It is the AI side of ADOS, an open-source platform for software-defined drones. The server sits on top of the same ADOS Drone Agent interfaces that [ADOS Mission Control](https://github.com/altnautica/ADOSMissionControl) uses, and extensions can contribute their own tools, so what an AI client can do grows with the platform. The flight tool set is deliberately small today and expands as the agent exposes more commands.
 
 ## Set it up (Claude Code)
 
@@ -119,7 +121,7 @@ ADOS MCP works with any MCP-capable AI client: Claude Code first-class, plus Cla
 - Read every flight-controller parameter with full meaning and get tuning recommendations.
 - Administer the platform: rename a node, update the software, install and configure plugins, restart a service, manage pairing and network settings.
 - Query logs and a full audit trail.
-- Fly, when the operator explicitly grants it: arm, change mode, go to a point, run a mission, land, return home, or stop.
+- Fly, when the operator explicitly grants it: arm, disarm, take off, change mode, land, or return to launch.
 
 The drone is the server; the AI is the client. No model runs on the drone. The server is a thin layer over interfaces that already exist, so behavior is defined once and stays consistent whether it is reached from the console, the command line, or an AI client.
 
