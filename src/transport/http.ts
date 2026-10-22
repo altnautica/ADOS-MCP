@@ -235,13 +235,15 @@ async function readJsonBody(
 }
 
 /**
- * Start the network listener. With `--trust-proxy` it binds loopback only (the
- * proxy is the sole reachable peer, so forwarded headers can be believed);
- * otherwise it binds `::` and trusts only the socket peer address.
+ * Start the network listener. An explicit `--http-host` always wins, so a
+ * container behind a proxy binds `0.0.0.0` and still trusts forwarded headers.
+ * Otherwise `--trust-proxy` binds loopback only (the proxy is the sole
+ * reachable peer, so forwarded headers can be believed), and the default binds
+ * `::` and trusts only the socket peer address.
  */
-export function startHttpServer(core: ServerCore, port: number, host?: string): Promise<http.Server> {
+export function startHttpServer(core: ServerCore, port: number): Promise<http.Server> {
   const trustProxy = core.config.trustProxy === true;
-  const bindHost = host ?? (trustProxy ? "127.0.0.1" : "::");
+  const bindHost = core.config.httpHost ?? (trustProxy ? "127.0.0.1" : "::");
   const server = http.createServer(createMcpHttpListener(core, { onBox: false, trustProxy }));
   return new Promise((resolve, reject) => {
     server.once("error", reject);

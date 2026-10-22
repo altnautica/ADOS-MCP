@@ -32,6 +32,14 @@ pnpm lint
 pnpm typecheck
 ```
 
+With only Docker installed:
+
+```bash
+docker compose run --rm check      # typecheck, lint, test, build
+docker compose run --rm dev        # test watch
+bash scripts/docker-smoke.sh <image>
+```
+
 Use `pnpm dev` for local development (runs via tsx). Run `pnpm build` before
 committing to verify the TypeScript compilation succeeds. Use `pnpm test` for
 focused test runs.
@@ -55,6 +63,7 @@ focused test runs.
 - Utilities: `src/util/`
 - Tests: `test/`
 - Architecture docs: `docs/architecture.md`
+- Container: `Dockerfile` (targets `dev`, `runtime`), `compose.yaml`, `.devcontainer/`
 
 ## Coding Rules
 

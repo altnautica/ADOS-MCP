@@ -41,12 +41,24 @@ describe("proxy trust", () => {
   it("parses --trust-proxy and defaults it off, also in fleet mode", () => {
     expect(parseCli(["--target", "fleet"]).trustProxy).toBe(false);
     expect(parseCli(["--target", "fleet", "--trust-proxy"]).trustProxy).toBe(true);
+    expect(parseCli(["--target", "fleet", "--http-host", "0.0.0.0"]).httpHost).toBe("0.0.0.0");
   });
 
   it("binds loopback when trusting a proxy", async () => {
     const { core } = makeCore({ mode: "fleet", convexUrl: "https://convex.example", trustProxy: true });
     server = await startHttpServer(core, 0);
     expect((server.address() as AddressInfo).address).toBe("127.0.0.1");
+  });
+
+  it("binds the explicit --http-host even when trusting a proxy", async () => {
+    const { core } = makeCore({
+      mode: "fleet",
+      convexUrl: "https://convex.example",
+      trustProxy: true,
+      httpHost: "0.0.0.0",
+    });
+    server = await startHttpServer(core, 0);
+    expect((server.address() as AddressInfo).address).toBe("0.0.0.0");
   });
 
   it("binds every interface when not trusting a proxy, even in fleet mode", async () => {

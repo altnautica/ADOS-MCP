@@ -1,0 +1,73 @@
+# ADOS MCP services.
+#   docker compose up -d                 the Streamable HTTP service (mcp)
+#   docker compose run --rm check        typecheck, lint, test and build in a container
+#   docker compose run --rm dev          the test watcher (any command works after `dev`)
+# Settings come from an optional .env (copy .env.example). The server keeps its
+# audit trail in the host's ~/.ados/mcp, which Mission Control's activity rail reads.
+name: ados-mcp
+
+services:
+  mcp:
+    build:
+      context: .
+      target: runtime
+    image: ados-mcp:local
+    # A service has no TTY on stdin, so the auto transport would pick stdio;
+    # the HTTP transport must be named explicitly.
+    command: ["--target", "${ADOS_MCP_TARGET:-agent}", "--transport", "http", "--no-mdns"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ADOS_MCP_HTTP_PORT: "8091"
+    ports:
+      - "127.0.0.1:${ADOS_MCP_PUBLISH_PORT:-8091}:8091"
+    volumes:
+      - "${ADOS_MCP_DATA_DIR:-~/.ados/mcp}:/home/node/.ados/mcp"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8091/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+
+  dev:
+    profiles: [dev]
+    build:
+      context: .
+      target: dev
+    image: ados-mcp:dev
+    working_dir: /app
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # The workspace bind mount and the node_modules volume are different
+      # filesystems, so pnpm would drop its store into the repo; keep it in
+      # the volume instead, where it also survives between runs.
+      npm_config_store_dir: /app/node_modules/.pnpm-store
+    volumes:
+      - ".:/app"
+      - "node_modules:/app/node_modules"
+      - "${ADOS_MCP_DATA_DIR:-~/.ados/mcp}:/home/node/.ados/mcp"
+    ports:
+      - "127.0.0.1:${ADOS_MCP_PUBLISH_PORT:-8091}:8091"
+    # Install output goes to stderr so a stdio server run keeps stdout clean.
+    entrypoint: ["sh", "-c", "pnpm install --frozen-lockfile --prefer-offline >&2 && exec \"$$@\"", "--"]
+    command: ["pnpm", "test:watch"]
+
+  check:
+    profiles: [dev]
+    extends: dev
+    ports: !reset []
+    command: ["sh", "-c", "pnpm typecheck && pnpm lint && pnpm test && pnpm build"]
+
+volumes:
+  node_modules: {}

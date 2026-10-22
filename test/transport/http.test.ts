@@ -16,9 +16,9 @@ afterEach(async () => {
 });
 
 async function boot(scopes: string[]): Promise<{ url: string; token: string; noToken: string }> {
-  const { core } = makeCore();
+  const { core } = makeCore({ httpHost: "127.0.0.1" });
   registerFakeReadTool(core);
-  server = await startHttpServer(core, 0, "127.0.0.1");
+  server = await startHttpServer(core, 0);
   const port = (server.address() as AddressInfo).port;
   const url = `http://127.0.0.1:${port}/mcp`;
   const token = await mintLocalToken({ scopes: scopes as never });

@@ -45,6 +45,27 @@ stderr sink.
 
 A `GET /healthz` probe reports readiness for load balancers.
 
+## Deployment
+
+The server ships as one container image, `ghcr.io/altnautica/ados-mcp`, with
+`node dist/index.js` as its entrypoint. Every mode and transport runs from it.
+
+- **Transport choice.** With no `--transport`, the server picks stdio whenever
+  stdin is not a TTY. That is right for a client that spawns
+  `docker run -i --rm IMAGE ...`, and wrong for a detached container or a
+  Compose service, whose stdin is never a TTY either. A long-lived service must
+  pass `--transport http`; `compose.yaml` does.
+- **Client lifetime.** Over stdio the server shuts down when stdin closes, so a
+  client-spawned container exits with its client.
+- **Data mount.** Audit, activity, owner id and the fleet file live in
+  `~/.ados/mcp`, which is `/home/node/.ados/mcp` in the image. Bind-mount the
+  host folder there so the audit trail persists and Mission Control's live
+  activity view can read it.
+- **Bind address.** HTTP binds `::` by default and `127.0.0.1` with
+  `--trust-proxy`. An explicit `--http-host` (or `ADOS_MCP_HTTP_HOST`) always
+  wins, so a container behind a reverse proxy binds `0.0.0.0` and still trusts
+  forwarded headers.
+
 ## The gate
 
 Every tool call passes one chokepoint, in order: token verify, scope check,

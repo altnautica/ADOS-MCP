@@ -13,6 +13,7 @@ export interface CliArgs {
   token?: string;
   transport: "auto" | "stdio" | "http" | "unix";
   httpPort?: number;
+  httpHost?: string;
   nodeId?: string;
   /** The GCS backend to reach (fleet-mode): local | prod | a Convex url. */
   gcs?: string;
@@ -49,6 +50,7 @@ Options:
                            machine credential (fleet-mode) or an agent token
   --transport <mode>       auto | stdio | http | unix  (default: auto)
   --http-port <port>       Streamable HTTP port in agent-mode (default: 8091)
+  --http-host <addr>       HTTP bind address (default: :: , or 127.0.0.1 with --trust-proxy)
   --node-id <id>           This node's device id (agent-mode)
   --convex-url <url>       Explicit Convex deployment url (fleet-mode; --gcs is the shortcut)
   --mqtt-url <url>         MQTT broker url for live streams (fleet-mode)
@@ -75,6 +77,7 @@ Environment:
   ADOS_MCP_TOKEN           The bearer (the operator machine credential in fleet-mode)
   ADOS_CONVEX_URL          Convex url (alternative to --convex-url / --gcs)
   ADOS_MCP_AUDIT_PATH      Local audit file (alternative to --audit-path)
+  ADOS_MCP_HTTP_HOST       HTTP bind address (alternative to --http-host)
   ADOS_MCP_LOG_LEVEL       debug | info | warn | error  (default: info)
 `;
 
@@ -93,6 +96,7 @@ export function parseCli(argv: string[]): CliArgs {
       token: { type: "string" },
       transport: { type: "string", default: "auto" },
       "http-port": { type: "string" },
+      "http-host": { type: "string" },
       "node-id": { type: "string" },
       "convex-url": { type: "string" },
       "mqtt-url": { type: "string" },
@@ -138,6 +142,7 @@ export function parseCli(argv: string[]): CliArgs {
     token: values.token as string | undefined,
     transport: transport as CliArgs["transport"],
     httpPort: values["http-port"] ? Number(values["http-port"]) : undefined,
+    httpHost: values["http-host"] as string | undefined,
     nodeId: values["node-id"] as string | undefined,
     gcs: values.gcs as string | undefined,
     convexUrl: values["convex-url"] as string | undefined,

@@ -187,6 +187,8 @@ export interface ServerConfig {
   // transports
   transports: Set<"stdio" | "http" | "unix">;
   httpPort: number;
+  /** HTTP bind address; wins over the `--trust-proxy` loopback default. */
+  httpHost?: string;
   unixSocketPath: string;
   // gate
   flightEnforced: boolean;
@@ -306,6 +308,9 @@ export function resolveConfig(args: CliArgs): ServerConfig {
     ...(launchToken && mode === "fleet" ? { credential: launchToken } : {}),
     transports,
     httpPort: args.httpPort ?? (Number(process.env.ADOS_MCP_HTTP_PORT) || DEFAULT_HTTP_PORT),
+    ...((args.httpHost ?? process.env.ADOS_MCP_HTTP_HOST)
+      ? { httpHost: args.httpHost ?? process.env.ADOS_MCP_HTTP_HOST }
+      : {}),
     unixSocketPath: defaultUnixSocketPath(),
     flightEnforced: args.flightEnforced,
     sim: args.sim,

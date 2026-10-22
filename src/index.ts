@@ -112,8 +112,23 @@ async function main(): Promise<void> {
   const servers: http.Server[] = [];
   let mdns: MdnsHandle | null = null;
 
+  const shutdown = async (reason: string): Promise<void> => {
+    logger.info(`shutting down (${reason})`);
+    try {
+      if (mdns) await mdns.stop();
+      await Promise.all(servers.map((s) => new Promise<void>((r) => s.close(() => r()))));
+      await core.close();
+    } finally {
+      process.exit(0);
+    }
+  };
+
   if (config.transports.has("stdio")) {
     await startStdio(core, config);
+    // The SDK's stdio transport never reacts to stdin closing, and an open
+    // plane socket keeps the process alive, so a client-spawned container
+    // would outlive its client. A closed stdin means the client is gone.
+    process.stdin.once("end", () => void shutdown("stdin closed"));
   } else {
     if (config.transports.has("http")) {
       servers.push(await startHttpServer(core, config.httpPort));
@@ -133,16 +148,6 @@ async function main(): Promise<void> {
     mdns = advertiseMdns(config);
   }
 
-  const shutdown = async (signal: string): Promise<void> => {
-    logger.info(`received ${signal}, shutting down`);
-    try {
-      if (mdns) await mdns.stop();
-      await Promise.all(servers.map((s) => new Promise<void>((r) => s.close(() => r()))));
-      await core.close();
-    } finally {
-      process.exit(0);
-    }
-  };
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }

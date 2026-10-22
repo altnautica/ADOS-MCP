@@ -45,4 +45,6 @@ cat <<EOF
 
   Check it works, without a client:
   ADOS_MCP_AGENT_KEY=<pairing-key> node "$ROOT/dist/index.js" --target agent <host> --verify
+
+Prefer not to install Node? Use the container image instead: see "Docker" in README.md.
 EOF

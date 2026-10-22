@@ -4,6 +4,27 @@ All notable changes to ADOS MCP are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project uses semantic
 versioning.
 
+## [Unreleased]
+
+### Added
+
+- A container image, `ghcr.io/altnautica/ados-mcp`, for linux/amd64 and
+  linux/arm64. An MCP client launches it with `docker run -i --rm`, so Node,
+  git and pnpm are not needed. Tags: `X.Y.Z`, `X.Y` and `latest` from a
+  release tag, `edge` from `main`.
+- `compose.yaml` with the HTTP service (`mcp`) and contributor services
+  (`check`, `dev`), plus a devcontainer.
+- `--http-host` / `ADOS_MCP_HTTP_HOST` sets the HTTP bind address. An explicit
+  value wins over the `--trust-proxy` loopback default, so a container behind
+  a reverse proxy can bind `0.0.0.0`.
+
+### Fixed
+
+- A stdio server now exits when its client closes stdin. Before, an open
+  connection to the target could keep it running after the client was gone.
+- The Dockerfile's service image could never serve HTTP or pass its health
+  check: with no TTY the auto transport picked stdio.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added

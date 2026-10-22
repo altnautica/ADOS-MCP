@@ -3,7 +3,14 @@ dist
 coverage
 .git
 .github
+.devcontainer
+compose.yaml
+catalog
+docs
+scripts
 test
+*.md
+!README.md
 *.log
 .env
 .env.*

@@ -45,7 +45,61 @@ It is the AI side of ADOS, an open-source platform for software-defined drones. 
 
 ## Set it up (Claude Code)
 
-You run the server yourself, from this repo; there is no package to install. The Mission Control MCP tab has a guided wizard that walks you through these steps and fills in your drone's host and pairing key (local) or your credential (cloud).
+Run the server as a container image, or clone and build it. The Mission Control MCP tab has a guided wizard that walks you through either path and fills in your drone's host and pairing key (local) or your credential (cloud).
+
+### Option A: Docker (quickest)
+
+**Prerequisites:** Docker (Docker Desktop on Windows or macOS, Docker Engine on Linux) and an MCP client (e.g. [Claude Code](https://docs.claude.com/claude-code)). No Node, git or pnpm.
+
+**1. Create the data folder and pull the image:**
+
+```bash
+mkdir -p ~/.ados/mcp && docker pull ghcr.io/altnautica/ados-mcp:latest
+```
+
+The container mounts `~/.ados/mcp` so the audit trail persists and Mission Control's live activity view works.
+
+**2. Add the server to your client.** Secrets ride in the client's environment; `-e NAME` forwards them into the container, so they never appear in the `docker` command line:
+
+```bash
+# One drone on the LAN:
+claude mcp add ados -e ADOS_MCP_AGENT_KEY=<pairing-key> -- docker run -i --rm -e ADOS_MCP_AGENT_KEY -v "$HOME/.ados/mcp:/home/node/.ados/mcp" ghcr.io/altnautica/ados-mcp:latest --target agent <host>
+
+# Your whole LAN fleet in one command:
+claude mcp add ados -e ADOS_MCP_FLEET=<blob> -- docker run -i --rm -e ADOS_MCP_FLEET -v "$HOME/.ados/mcp:/home/node/.ados/mcp" ghcr.io/altnautica/ados-mcp:latest --target local-fleet
+
+# Your fleet from anywhere, through the cloud (opt-in):
+claude mcp add ados -e ADOS_MCP_TOKEN=<credential> -- docker run -i --rm -e ADOS_MCP_TOKEN -v "$HOME/.ados/mcp:/home/node/.ados/mcp" ghcr.io/altnautica/ados-mcp:latest --target fleet --gcs prod
+```
+
+With a fleet file instead of the env blob, drop `-e ADOS_MCP_FLEET` and pass plain `--target local-fleet`: the container reads `~/.ados/mcp/fleet.json` from the mount.
+
+**3. Check it works** (one-shot, no `-i`):
+
+```bash
+docker run --rm -e ADOS_MCP_AGENT_KEY=<pairing-key> ghcr.io/altnautica/ados-mcp:latest --target agent <host> --verify
+docker run --rm -v "$HOME/.ados/mcp:/home/node/.ados/mcp" ghcr.io/altnautica/ados-mcp:latest --target local-fleet --verify
+```
+
+For a client that reads `.mcp.json` (the key is read from your environment, so the file holds no secret):
+
+```json
+{
+  "mcpServers": {
+    "ados": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "ADOS_MCP_AGENT_KEY", "-v", "${HOME}/.ados/mcp:/home/node/.ados/mcp", "ghcr.io/altnautica/ados-mcp:latest", "--target", "agent", "<host>"],
+      "env": { "ADOS_MCP_AGENT_KEY": "${ADOS_MCP_AGENT_KEY}" }
+    }
+  }
+}
+```
+
+See [Run it with Docker](#run-it-with-docker) for image tags, the HTTP service and the limits of running in a container.
+
+### Option B: from source
+
+You run the server from this repo; there is no npm package to install.
 
 **Prerequisites:** Node ≥ 20, git, [pnpm](https://pnpm.io) (`npm install -g pnpm`), and an MCP client (e.g. [Claude Code](https://docs.claude.com/claude-code)).
 
@@ -213,6 +267,38 @@ All three expose the identical tools; only the reach differs.
 - **Agent and local-fleet are the local-first paths.** The server talks straight to your drones over the LAN: no cloud round-trip, no login. A drone's own pairing key (stored when you paired it in Mission Control) authorizes the connection. This is the everyday path for a bench, a field setup, or your own network.
 - **Fleet-mode is the opt-in "manage from anywhere" path.** It connects to a Mission Control (GCS) backend, either your own local one (`--gcs local`) or the production one (`--gcs prod`), as you, the operator, and reaches the drones Mission Control tracks in the cloud. Useful when you are off the drones' network; it needs a signed-in operator to mint a credential.
 
+## Run it with Docker
+
+The image is `ghcr.io/altnautica/ados-mcp`, built for `linux/amd64` and `linux/arm64`. Tags:
+
+- `X.Y.Z` and `X.Y` for each release, and `latest` for the newest release.
+- `edge` for the current `main` branch.
+
+Pin a version (`ghcr.io/altnautica/ados-mcp:X.Y.Z`) when you want a setup that does not change under you.
+
+**As a long-lived HTTP service.** From a checkout, copy `.env.example` to `.env`, fill it in, and start the `mcp` service. It listens on `127.0.0.1:8091`, mounts `~/.ados/mcp`, and runs with `--transport http`:
+
+```bash
+cp .env.example .env
+docker compose up -d
+claude mcp add --transport http ados http://127.0.0.1:8091/mcp --header "Authorization: Bearer <token>"
+```
+
+HTTP always needs a bearer token; the tokenless local principal exists only over stdio.
+
+**Behind your own reverse proxy.** Run with `--trust-proxy --http-host 0.0.0.0` and do not publish the port; let the proxy reach the container on its Docker network. An explicit `--http-host` wins over the loopback bind that `--trust-proxy` uses by default.
+
+**Docker limits:**
+
+- LAN auto-discovery (`--discover`) and mDNS advertising need `--network host`, which works on Linux.
+- `.local` names may not resolve inside a container. Use the drone's IP address, for example `http://192.168.1.50:8080`.
+- The image runs as user id 1000. On Linux, if your user id differs, add `--user "$(id -u):$(id -g)"` after `docker run`. Create `~/.ados/mcp` before the first run; otherwise Docker creates it owned by root, the audit sink cannot write, and write tools refuse.
+- `--gcs local` inside a container points at the container itself. Use `--convex-url http://host.docker.internal:3210` instead, and on Linux add `--add-host host.docker.internal:host-gateway`.
+- The on-box Unix socket does not apply in a container, so a warning about it is expected.
+- Through Docker Desktop's port publishing, tokens pinned to a source IP see the Docker gateway address, not your client's.
+- Never pass `-t` to a stdio run; a TTY corrupts the protocol stream.
+- cmd.exe does not expand `$HOME`. Use PowerShell or a POSIX shell. In Git Bash, put `MSYS_NO_PATHCONV=1` in front of the command: without it Git Bash rewrites the container side of the `-v` mount, the server still connects, and the audit trail silently stays inside the container.
+
 ## Transports
 
 - **Streamable HTTP** (`POST /mcp`, single endpoint, SSE upgrade for streams), the primary networked transport.
@@ -230,6 +316,8 @@ All three expose the identical tools; only the reach differs.
 
 ## Develop
 
+Natively, with Node and pnpm:
+
 ```bash
 pnpm install
 pnpm typecheck
@@ -237,6 +325,24 @@ pnpm lint
 pnpm test
 pnpm build
 ```
+
+Or with only Docker installed:
+
+```bash
+docker compose run --rm check     # typecheck, lint, test and build
+docker compose run --rm dev       # test watch (not on a Windows host; see below)
+docker compose run --rm -T dev node --import tsx src/index.ts --target agent <host>
+```
+
+The last line also works as a working-copy server for your client:
+
+```bash
+claude mcp add ados-dev -- docker compose -f <path>/compose.yaml run --rm -T dev node --import tsx src/index.ts --target agent <host>
+```
+
+File-change events do not cross a Docker Desktop bind mount from a Windows host, so the `dev` watcher never re-runs there. On Windows run `check` on demand, or use the native pnpm commands for a watch loop.
+
+In VS Code, the repo carries a devcontainer: run "Reopen in Container". If its build stops with `additional privileges requested`, your Docker Compose builds through Bake, which refuses the generated Dockerfile outside the build context; set `BUILDX_BAKE_ENTITLEMENTS_FS=0` in the environment VS Code starts from and reopen.
 
 The connector is a thin shim, so it holds no telemetry buffers and runs no inference. It calls the platform's existing interfaces and presents them through MCP.
 
