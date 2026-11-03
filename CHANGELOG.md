@@ -6,6 +6,16 @@ versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `vision.detections` (read): the latest detection batch per camera from the
+  agent's `/api/vision/detections/latest`. Drone-direct only.
+- `nav.status` (read): the agent's navigation, follow, lidar and live-map
+  state from `/api/v1/nav/status`. Drone-direct only.
+- `vision.designate` (flight): locks a camera's tracker onto a box through
+  `/api/vision/designate`. An active follow retargets to it, so it carries the
+  flight scope and the confirm/sim gate. Drone-direct only.
+
 ## [0.3.0] - 2026-10-22
 
 ### Added

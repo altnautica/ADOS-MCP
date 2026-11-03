@@ -10,6 +10,7 @@ import type { AuditEvent } from "../src/audit/event.js";
 import type { AuditSink } from "../src/audit/sink.js";
 import type {
   CommandOutcome,
+  DesignateRequest,
   CredentialPrincipal,
   FirmwareHint,
   NodeRef,
@@ -62,6 +63,17 @@ export class FakePlane implements PlatformPlane {
   }
   async getVision(_node: NodeRef): Promise<NodeStatus> {
     return { vision: { model: "none" } };
+  }
+  async getDetections(_node: NodeRef): Promise<unknown> {
+    return { batches: { main: { camera_id: "main", detections: [{ class_label: "person", track_id: 12 }] } } };
+  }
+  async getNavStatus(_node: NodeRef): Promise<unknown> {
+    return { pose: null, scan: null, nav: null, follow: { ts_ms: 1, age_ms: 40, data: { phase: "following" } }, map: null };
+  }
+  lastDesignate: DesignateRequest | null = null;
+  async designateTarget(_n: NodeRef, req: DesignateRequest): Promise<CommandOutcome> {
+    this.lastDesignate = req;
+    return { ok: true, status: "completed", data: { status: "ok", camera_id: req.camera_id } };
   }
   async getServices(_node: NodeRef): Promise<NodeStatus> {
     return { services: [{ unit: "ados-supervisor", state: "running" }] };

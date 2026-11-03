@@ -153,6 +153,9 @@ export const READ_SAFE_ALLOWLIST: ReadonlySet<string> = new Set([
   "sensor.imu.register",
   "sensor.lidar.register",
   "sensor.payload.register",
+  // A read-only subscription to the sensor bus (IMU, GNSS bytes, triggers,
+  // clock); it writes nothing, like telemetry.subscribe.
+  "sensor.stream.read",
   "telemetry.extend",
   "telemetry.subscribe",
   "video.source.set",

@@ -83,6 +83,35 @@ export function registerFlightTools(reg: ToolRegistry): void {
       handler: async (a, ctx) =>
         flightResult(await ctx.plane.sendFlightCommand(ctx.node, "mode", [String(a.mode)]), "mode"),
     },
+    {
+      name: "vision.designate",
+      description:
+        "Lock a camera's tracker onto a box (normalized 0..1 frame coordinates). An active follow retargets to it, so this requires the flight scope + confirm/sim.",
+      inputSchema: z.object({
+        node: NODE,
+        camera_id: z.string().min(1),
+        bbox: z.object({
+          x: z.number().min(0).max(1),
+          y: z.number().min(0).max(1),
+          width: z.number().positive().max(1),
+          height: z.number().positive().max(1),
+        }),
+        class_label: z.string().optional(),
+        confidence: z.number().min(0).max(1).optional(),
+        confirm_id: CONFIRM_ID,
+      }),
+      annotations: WRITE,
+      handler: async (a, ctx) => {
+        const bbox = a.bbox as { x: number; y: number; width: number; height: number };
+        const o = await ctx.plane.designateTarget(ctx.node, {
+          camera_id: String(a.camera_id),
+          bbox,
+          ...(typeof a.class_label === "string" ? { class_label: a.class_label } : {}),
+          ...(typeof a.confidence === "number" ? { confidence: a.confidence } : {}),
+        });
+        return { ok: o.ok, ...(o.message ? { message: o.message } : {}), raw: o.data };
+      },
+    },
   ];
 
   for (const def of defs) reg.register(def);

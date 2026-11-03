@@ -21,6 +21,7 @@ import { makeFunctionReference } from "convex/server";
 import { GateError } from "../gate/errors.js";
 import type {
   CommandOutcome,
+  DesignateRequest,
   CredentialPrincipal,
   FirmwareHint,
   NodeRef,
@@ -311,6 +312,15 @@ export class GcsPlane implements PlatformPlane {
   }
   leaveWifi(_node: NodeRef): Promise<CommandOutcome> {
     return Promise.reject(this.relayWriteUnsupported("leaving a Wi-Fi network"));
+  }
+  getDetections(_node: NodeRef): Promise<unknown> {
+    return Promise.reject(this.relayReadUnsupported("live detections"));
+  }
+  getNavStatus(_node: NodeRef): Promise<unknown> {
+    return Promise.reject(this.relayReadUnsupported("the navigation status"));
+  }
+  designateTarget(_node: NodeRef, _req: DesignateRequest): Promise<CommandOutcome> {
+    return Promise.reject(this.relayWriteUnsupported("designating a tracker target"));
   }
 
   sendFlightCommand(node: NodeRef, cmd: string, args: (number | string)[]): Promise<CommandOutcome> {

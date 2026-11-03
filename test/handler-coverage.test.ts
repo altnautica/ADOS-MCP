@@ -36,7 +36,6 @@ const FORWARD_SEAMS: Record<string, string> = {
   "params.reset_all": "destructive; later phase",
   "vision.detector_get": "vision write phase",
   "vision.detector_set": "vision write phase",
-  "vision.designate": "vision write phase",
   "video.live_url": "video phase",
   "video.snapshot": "video phase",
   "files.list": "files phase",

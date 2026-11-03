@@ -14,6 +14,7 @@ import { LanDirectPlane } from "./lan-direct.js";
 import type { FleetNode } from "../config.js";
 import type {
   CommandOutcome,
+  DesignateRequest,
   CredentialPrincipal,
   FirmwareHint,
   NodeRef,
@@ -130,6 +131,15 @@ export class LocalFleetPlane implements PlatformPlane {
   }
   getVision(n: NodeRef): Promise<NodeStatus> {
     return this.via(n, (c) => c.getVision(n));
+  }
+  getDetections(n: NodeRef): Promise<unknown> {
+    return this.via(n, (c) => c.getDetections(n));
+  }
+  getNavStatus(n: NodeRef): Promise<unknown> {
+    return this.via(n, (c) => c.getNavStatus(n));
+  }
+  designateTarget(n: NodeRef, req: DesignateRequest): Promise<CommandOutcome> {
+    return this.via(n, (c) => c.designateTarget(n, req));
   }
   getServices(n: NodeRef): Promise<NodeStatus> {
     return this.via(n, (c) => c.getServices(n));

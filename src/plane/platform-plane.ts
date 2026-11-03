@@ -92,6 +92,14 @@ export interface NodeSummary {
   armed?: boolean;
 }
 
+/** A tracker designation: the camera and the box (normalized 0..1) to lock. */
+export interface DesignateRequest {
+  camera_id: string;
+  bbox: { x: number; y: number; width: number; height: number };
+  class_label?: string;
+  confidence?: number;
+}
+
 export interface PlatformPlane {
   readonly mode: PlaneMode;
 
@@ -130,6 +138,15 @@ export interface PlatformPlane {
 
   /** Read the perception / vision engine status. */
   getVision(node: NodeRef): Promise<NodeStatus>;
+
+  /** Read the latest detection batch per camera (drone-direct only). */
+  getDetections(node: NodeRef): Promise<unknown>;
+
+  /**
+   * Read the latest navigation, follow, lidar and map state, each kind as
+   * `{ts_ms, age_ms, data}` or null (drone-direct only).
+   */
+  getNavStatus(node: NodeRef): Promise<unknown>;
 
   /** Read the process / service list (unit, state). */
   getServices(node: NodeRef): Promise<NodeStatus>;
@@ -236,4 +253,10 @@ export interface PlatformPlane {
    * was delivered.
    */
   sendFlightCommand(node: NodeRef, cmd: string, args: (number | string)[]): Promise<CommandOutcome>;
+
+  /**
+   * Lock a camera's single-object tracker onto a box (normalized 0..1 frame
+   * coordinates). Retargets an active follow, so it rides the flight gate.
+   */
+  designateTarget(node: NodeRef, req: DesignateRequest): Promise<CommandOutcome>;
 }

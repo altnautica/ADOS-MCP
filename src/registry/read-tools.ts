@@ -145,6 +145,22 @@ export function registerReadTools(reg: ToolRegistry, auditPath: string): void {
       handler: (_a, ctx) => ctx.plane.getVision(ctx.node),
     },
     {
+      name: "vision.detections",
+      description:
+        "Read the latest detection batch per camera: boxes, labels, confidence, and track ids (drone-direct only).",
+      inputSchema: z.object({ node: NODE }),
+      annotations: READ,
+      handler: (_a, ctx) => ctx.plane.getDetections(ctx.node),
+    },
+    {
+      name: "nav.status",
+      description:
+        "Read the navigation state: lidar pose and scan, navigation source, follow phase and range, and the live map session. Each kind is {ts_ms, age_ms, data} or null when nothing publishes it (drone-direct only).",
+      inputSchema: z.object({ node: NODE }),
+      annotations: READ,
+      handler: (_a, ctx) => ctx.plane.getNavStatus(ctx.node),
+    },
+    {
       name: "fleet.list_nodes",
       description: "List the nodes reachable through this connection, with a status summary.",
       inputSchema: z.object({}),

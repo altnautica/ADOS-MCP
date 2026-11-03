@@ -32,8 +32,22 @@ function agentCatalogIds(toml: string): string[] {
 }
 
 // Ids that sit in neither the generated floor nor the allowlist and are admin on
-// purpose (process, filesystem and network reach).
-const DELIBERATE_ADMIN = ["filesystem.host", "network.listen", "network.outbound", "process.spawn"];
+// purpose: process, filesystem and network reach, and writes that change what
+// every other consumer sees. capture.storage.write writes the capture volume and
+// raises the marker that switches the flight controller's sensor rates;
+// sensors.rig.write replaces the calibration every fused sample uses;
+// camera.control.write changes a capture camera's exposure for every consumer;
+// video.whep.relay hands the node's live camera video to the plugin's viewers.
+const DELIBERATE_ADMIN = [
+  "camera.control.write",
+  "capture.storage.write",
+  "filesystem.host",
+  "network.listen",
+  "network.outbound",
+  "process.spawn",
+  "sensors.rig.write",
+  "video.whep.relay",
+];
 
 describe("capability floor", () => {
   it("floors flight-control writes at flight and hardware at admin", () => {

@@ -1,7 +1,7 @@
 {
   "version": "0.3.0",
   "mcpRevision": "2025-06-18",
-  "toolCount": 45,
+  "toolCount": 48,
   "tools": [
     {
       "name": "admin.agent.restart_supervisor",
@@ -177,6 +177,14 @@
       "description": "Query the node's agent logs (optional level filter, bounded count)."
     },
     {
+      "name": "nav.status",
+      "group": "nav",
+      "scope": "read",
+      "safetyClass": "read",
+      "description": "Read the navigation state: lidar pose and scan, navigation source, follow phase and range, and the live map session. Each kind is {ts_ms, age_ms, data} or null when nothing publishes it (drone-direct only).",
+      "agentModeOnly": true
+    },
+    {
       "name": "params.diff_from_default",
       "group": "params",
       "scope": "read",
@@ -339,6 +347,23 @@
       "scope": "read",
       "safetyClass": "read",
       "description": "A one-shot flight telemetry read: battery, gps, position, attitude, mode."
+    },
+    {
+      "name": "vision.designate",
+      "group": "vision",
+      "scope": "flight",
+      "safetyClass": "flight",
+      "description": "Lock a camera's tracker onto a box (normalized 0..1 frame coordinates). An active follow retargets to it, so this requires the flight scope + confirm/sim.",
+      "agentModeOnly": true,
+      "affectsFlight": true
+    },
+    {
+      "name": "vision.detections",
+      "group": "vision",
+      "scope": "read",
+      "safetyClass": "read",
+      "description": "Read the latest detection batch per camera: boxes, labels, confidence, and track ids (drone-direct only).",
+      "agentModeOnly": true
     },
     {
       "name": "vision.status",

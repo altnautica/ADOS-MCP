@@ -8,6 +8,7 @@ import { GateError } from "../gate/errors.js";
 import { logger } from "../util/logger.js";
 import type {
   CommandOutcome,
+  DesignateRequest,
   CredentialPrincipal,
   FirmwareHint,
   NodeRef,
@@ -185,6 +186,14 @@ export class LanDirectPlane implements PlatformPlane {
 
   getVision(_node: NodeRef): Promise<NodeStatus> {
     return this.get<NodeStatus>("/api/vision/status");
+  }
+
+  getDetections(_node: NodeRef): Promise<unknown> {
+    return this.get("/api/vision/detections/latest");
+  }
+
+  getNavStatus(_node: NodeRef): Promise<unknown> {
+    return this.get("/api/v1/nav/status");
   }
 
   getServices(_node: NodeRef): Promise<NodeStatus> {
@@ -375,6 +384,10 @@ export class LanDirectPlane implements PlatformPlane {
     // the correlated COMMAND_ACK; the tool layer reads ack.accepted (a DENIED ack
     // still returns HTTP 200), so this stays a plain toOutcome.
     return toOutcome(await this.post(`/api/command`, { cmd, args }));
+  }
+
+  async designateTarget(_node: NodeRef, req: DesignateRequest): Promise<CommandOutcome> {
+    return toOutcome(await this.post("/api/vision/designate", req));
   }
 
   /** Perform an authenticated GET against the agent REST, mapping failures. */
