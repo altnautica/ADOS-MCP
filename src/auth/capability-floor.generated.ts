@@ -3,6 +3,7 @@
 export const CAPABILITY_FLOOR: Readonly<Record<string, "flight" | "admin">> = {
   "estimator.pose.inject": "flight",
   "flight.guided_setpoint": "flight",
+  "flight.motion": "flight",
   "flight.rate_setpoint": "flight",
   "hardware.camera.csi": "admin",
   "hardware.gpio": "admin",
