@@ -37,7 +37,7 @@ function matchIpv4Cidr(ip: string, cidr: string): boolean {
 }
 
 // Private / mDNS / loopback ranges — "the LAN". Mirrors the GCS SSRF whitelist
-// (ADOSMissionControl/src/lib/agent/host-validation.ts) so the connector's on-box
+// (ADOSMissionControlGCS/src/lib/agent/host-validation.ts) so the connector's on-box
 // trust boundary and the GCS proxy agree on what counts as a local target.
 const PRIVATE_V4 = [
   /^10\./,

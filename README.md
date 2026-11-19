@@ -16,7 +16,7 @@
   <a href="https://discord.gg/uxbvuD4d5q"><img src="https://img.shields.io/badge/Discord-Join-5865F2.svg" alt="Discord"></a>
 </p>
 <p align="center">
-  <strong><a href="https://github.com/altnautica/ADOSMissionControl">Mission Control</a></strong> |
+  <strong><a href="https://github.com/altnautica/ADOSMissionControlGCS">Mission Control</a></strong> |
   <strong><a href="https://github.com/altnautica/ADOSDroneAgent">Drone Agent</a></strong> |
   <strong><a href="https://github.com/altnautica/ADOSAndroidGCS">Android GCS</a></strong> |
   <strong><a href="https://github.com/altnautica/ADOSExtensions">Extensions</a></strong> |
@@ -41,7 +41,7 @@
 
 ADOS MCP lets any MCP-capable AI client connect to an ADOS drone or ground station and read it, administer it, and, when the operator explicitly allows it, fly it. Every connection carries a scope, anything that moves an aircraft needs a confirmation, and every call lands in an audit trail.
 
-It is the AI side of ADOS, an open-source platform for software-defined drones. The server sits on top of the same ADOS Drone Agent interfaces that [ADOS Mission Control](https://github.com/altnautica/ADOSMissionControl) uses, and extensions can contribute their own tools, so what an AI client can do grows with the platform. The flight tool set is deliberately small today and expands as the agent exposes more commands.
+It is the AI side of ADOS, an open-source platform for software-defined drones. The server sits on top of the same ADOS Drone Agent interfaces that [ADOS Mission Control](https://github.com/altnautica/ADOSMissionControlGCS) uses, and extensions can contribute their own tools, so what an AI client can do grows with the platform. The flight tool set is deliberately small today and expands as the agent exposes more commands.
 
 ## Set it up (Claude Code)
 
@@ -211,7 +211,7 @@ ADOS Ground Agent is the Drone Agent running its ground-station profile.
 <!-- ados-family:repos -->
 | Repo | Runs on | What it does | Link |
 |---|---|---|---|
-| ADOS Mission Control | Browser, desktop (Electron) | Ground control station: FC setup, mission planning, flight, 3D simulation, fleet | [ADOSMissionControl](https://github.com/altnautica/ADOSMissionControl) |
+| ADOS Mission Control | Browser, desktop (Electron) | Ground control station: FC setup, mission planning, flight, 3D simulation, fleet | [ADOSMissionControlGCS](https://github.com/altnautica/ADOSMissionControlGCS) |
 | ADOS Drone Agent | Companion computer on the drone, or a ground node | Onboard agent: MAVLink routing, HD video, long-range radio link, plugins, remote control | [ADOSDroneAgent](https://github.com/altnautica/ADOSDroneAgent) |
 | ADOS Android GCS | Android phones and tablets | Native ground control app for agents on the LAN, direct flight controllers and the cloud | [ADOSAndroidGCS](https://github.com/altnautica/ADOSAndroidGCS) |
 | ADOS Extensions | Drone Agent and Mission Control | First-party signed plugins, each with an agent half and a GCS half | [ADOSExtensions](https://github.com/altnautica/ADOSExtensions) |

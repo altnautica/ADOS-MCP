@@ -123,7 +123,7 @@ references.
 
 - [ADOS Drone Agent](https://github.com/altnautica/ADOSDroneAgent) - the
   agent the server connects to.
-- [ADOS Mission Control](https://github.com/altnautica/ADOSMissionControl) -
+- [ADOS Mission Control](https://github.com/altnautica/ADOSMissionControlGCS) -
   the GCS with an MCP setup wizard.
 - [ADOS Extensions](https://github.com/altnautica/ADOSExtensions) - first-party
   plugins for the platform.
