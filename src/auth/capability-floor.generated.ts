@@ -23,5 +23,6 @@ export const CAPABILITY_FLOOR: Readonly<Record<string, "flight" | "admin">> = {
   "mavlink.write": "flight",
   "mission.write": "flight",
   "msp.write": "flight",
+  "shm.voxmap": "flight",
   "vision.track.designate": "flight",
 };
