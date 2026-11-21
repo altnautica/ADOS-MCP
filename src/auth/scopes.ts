@@ -141,6 +141,7 @@ export const READ_SAFE_ALLOWLIST: ReadonlySet<string> = new Set([
   "cloud.records",
   "event.publish",
   "event.subscribe",
+  "follow.beacon.read",
   "mavlink.subscribe",
   "mcp.expose",
   "msp.read",
@@ -159,10 +160,12 @@ export const READ_SAFE_ALLOWLIST: ReadonlySet<string> = new Set([
   "telemetry.extend",
   "telemetry.subscribe",
   "video.source.set",
+  "vision.depth.read",
   "vision.detection.publish",
   "vision.frame.read",
   "vision.model.read",
   "vision.offload.advertise",
+  "vision.subject.read",
 ]);
 
 /** Plugin-scoped ids (`plugin.<id>.<name>`) reach only the granting plugin. */
